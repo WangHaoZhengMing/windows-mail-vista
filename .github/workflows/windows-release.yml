@@ -64,7 +64,10 @@ jobs:
           "version=$version" >> $env:GITHUB_OUTPUT
 
       - name: Test mail core and application logic
-        run: cargo test -p mail_core -p mail_app --locked --target x86_64-pc-windows-msvc
+        # Older Windows toolchains can give simultaneous test fixtures the same
+        # timestamp-based directory. Run fixtures serially; their worker tests
+        # still exercise parallel account synchronization internally.
+        run: cargo test -p mail_core -p mail_app --locked --target x86_64-pc-windows-msvc -- --test-threads=1
 
       - name: Build Windows application
         run: cargo build -p mail_windows --bin WinMail --release --locked --target x86_64-pc-windows-msvc
