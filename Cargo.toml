@@ -1,0 +1,59 @@
+[workspace]
+members = [
+    "app/cli",
+    "app/windows",
+    "app/windows/platform",
+    "app/windows/compat",
+    "app/macos",
+    "app/macos/platform",
+    "app/linux",
+    "app/linux/platform",
+    "crates/mail_app",
+    "crates/mail_core",
+    "crates/mail_html",
+]
+default-members = ["app/cli", "app/windows"]
+resolver = "3"
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+
+[workspace.dependencies]
+mail_app = { path = "crates/mail_app" }
+mail_core = { path = "crates/mail_core" }
+mail_html = { path = "crates/mail_html" }
+mail_windows = { path = "app/windows" }
+mail_windows_platform = { path = "app/windows/platform", default-features = false }
+mail_macos_platform = { path = "app/macos/platform" }
+mail_linux_platform = { path = "app/linux/platform" }
+msoe = { package = "mail_windows_compat", path = "app/windows/compat" }
+
+base64 = "0.22.1"
+ammonia = "4.2.1"
+cssparser = "0.38.0"
+html5ever = "0.27.0"
+markup5ever_rcdom = "0.3.0"
+chrono = { version = "0.4.44", default-features = false, features = ["clock"] }
+mailparse = "0.16"
+native-tls = "0.2.18"
+getrandom = "0.4.3"
+ureq = { version = "=3.4.2", default-features = false, features = ["native-tls"] }
+png = "0.18.1"
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.141"
+sha2 = "0.10.9"
+url = "2.5.4"
+windows-sys = "0.61.2"
+windows = "0.62.2"
+windows-core = "0.62.2"
+webview2-com = "0.39.1"
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[profile.release]
+strip = true
+lto = true
+codegen-units = 1

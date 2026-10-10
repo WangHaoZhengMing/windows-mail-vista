@@ -1,0 +1,17 @@
+LIBRARY msoe
+EXPORTS
+    IdentifyW @22 NONAME
+    CoStartOutlookExpress @38
+    CoStartOutlookExpressW @39
+    DllCanUnloadNow @40
+    DllGetClassObject @41
+    MAPIDeleteMail @43
+    MAPIFindNext @45
+    MAPIFreeBuffer @46
+    MAPILogoff @47
+    MAPILogon @48
+    MAPIReadMail @49
+    MAPIResolveName @50
+    MAPISaveMail @51
+    MAPISendMail @53
+    CoShutdownOutlookExpress

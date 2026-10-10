@@ -1,0 +1,24 @@
+[package]
+name = "mail_windows_compat"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Windows Mail ABI and Simple MAPI compatibility adapters"
+
+[lib]
+name = "msoe"
+crate-type = ["rlib", "cdylib"]
+
+[dependencies]
+mail_core.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+mail_windows.workspace = true
+mail_windows_platform = { workspace = true, features = ["ui"] }
+windows-sys = { workspace = true, features = [
+    "Win32_Foundation", "Win32_System_Memory", "Win32_System_Mapi",
+    "Win32_Globalization", "Win32_UI_WindowsAndMessaging",
+] }
+
+[lints]
+workspace = true

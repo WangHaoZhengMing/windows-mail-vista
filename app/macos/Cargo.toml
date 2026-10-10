@@ -1,0 +1,16 @@
+[package]
+name = "mail_macos"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Reserved macOS Mail application entry point"
+
+[[bin]]
+name = "winmail-macos"
+path = "src/main.rs"
+
+[dependencies]
+mail_core.workspace = true
+
+[lints]
+workspace = true

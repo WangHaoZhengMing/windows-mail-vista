@@ -1,0 +1,9 @@
+[package]
+name = "mail_html"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Platform-independent contracts for HTML mail rendering"
+
+[lints]
+workspace = true

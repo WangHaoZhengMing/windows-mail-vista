@@ -1,0 +1,12 @@
+[package]
+name = "mail_macos_platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Reserved macOS operating-system services and HTML host adapters"
+
+[dependencies]
+mail_html.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,12 @@
+[package]
+name = "mail_linux_platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Reserved Linux operating-system services and HTML host adapters"
+
+[dependencies]
+mail_html.workspace = true
+
+[lints]
+workspace = true

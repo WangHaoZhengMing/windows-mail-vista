@@ -1,0 +1,16 @@
+[package]
+name = "mail_linux"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Reserved Linux Mail application entry point"
+
+[[bin]]
+name = "winmail-linux"
+path = "src/main.rs"
+
+[dependencies]
+mail_core.workspace = true
+
+[lints]
+workspace = true

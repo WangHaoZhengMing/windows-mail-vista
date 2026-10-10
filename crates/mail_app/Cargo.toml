@@ -1,0 +1,13 @@
+[package]
+name = "mail_app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+description = "Typed application commands, mail state and background operations"
+
+[lints]
+workspace = true
+
+[dependencies]
+mail_core.workspace = true
+mailparse.workspace = true
