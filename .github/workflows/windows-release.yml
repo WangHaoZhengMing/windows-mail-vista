@@ -1,0 +1,122 @@
+name: Windows build and release
+
+on:
+  push:
+    branches: [main]
+    tags: ['v*']
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing version tag to publish (leave empty to build only)'
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: windows-${{ github.event_name }}-${{ inputs.tag || github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-2022
+    timeout-minutes: 40
+    defaults:
+      run:
+        shell: pwsh
+    env:
+      CARGO_TERM_COLOR: always
+      RUSTFLAGS: '-C target-feature=+crt-static'
+      WINMAIL_DATA_DIR: ${{ runner.temp }}\winmail-tests
+      RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          ref: ${{ inputs.tag || github.ref }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Install Rust
+        run: |
+          rustup toolchain install 1.88.0 --profile minimal --target x86_64-pc-windows-msvc
+          rustup override set 1.88.0
+
+      - name: Validate version and release tag
+        id: version
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $metadata = cargo metadata --no-deps --format-version 1 --locked | ConvertFrom-Json
+          if ($LASTEXITCODE -ne 0) { throw 'Cargo metadata failed' }
+          $version = ($metadata.packages | Where-Object name -eq 'mail_windows').version
+          if (-not $version) { throw 'Windows package version was not found' }
+          if ($env:RELEASE_TAG) {
+            if ($env:RELEASE_TAG -cne "v$version") { throw "Release tag must be v$version" }
+            git rev-parse --verify "refs/tags/$env:RELEASE_TAG"
+            if ($LASTEXITCODE -ne 0) { throw 'The release tag must already exist' }
+          }
+          "version=$version" >> $env:GITHUB_OUTPUT
+
+      - name: Test mail core and application logic
+        run: cargo test -p mail_core -p mail_app --locked --target x86_64-pc-windows-msvc
+
+      - name: Build Windows application
+        run: cargo build -p mail_windows --bin WinMail --release --locked --target x86_64-pc-windows-msvc
+
+      - name: Package portable Windows release
+        env:
+          APP_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $package = "Windows-Mail-Vista-$env:APP_VERSION-windows-x64"
+          New-Item -ItemType Directory -Path "dist/$package" -Force | Out-Null
+          Copy-Item -LiteralPath 'target/x86_64-pc-windows-msvc/release/WinMail.exe' -Destination "dist/$package/WinMail.exe"
+          Copy-Item -LiteralPath 'README.md' -Destination "dist/$package/README.md"
+          foreach ($license in Get-ChildItem -File -Filter 'LICENSE*') {
+            Copy-Item -LiteralPath $license.FullName -Destination "dist/$package"
+          }
+          Compress-Archive -Path "dist/$package" -DestinationPath "dist/$package.zip"
+          $hash = (Get-FileHash -LiteralPath "dist/$package.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
+          "$hash  $package.zip" | Set-Content -LiteralPath "dist/$package.zip.sha256" -Encoding utf8NoBOM
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: windows-x64
+          path: |
+            dist/*.zip
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 14
+
+  release:
+    name: Publish GitHub Release
+    needs: build
+    if: github.event_name != 'pull_request' && (startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'workflow_dispatch' && inputs.tag != ''))
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - name: Download Windows package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: windows-x64
+          path: dist
+
+      - name: Create release and upload package
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" --verify-tag \
+              --title "Windows Mail Vista $RELEASE_TAG" --generate-notes
+          fi
+          gh release upload "$RELEASE_TAG" dist/*.zip dist/*.sha256 --clobber

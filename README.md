@@ -6,6 +6,24 @@ Windows Mail Vista 是一个使用 Rust 编写的 Windows 桌面邮件客户端�
 
 目前可运行的平台是 **Windows x64**。macOS 和 Linux 仅有预留入口与适配目录，尚不能作为完整客户端使用。本项目是独立实现，并未完整复刻旧 Windows Mail 的所有功能和接口。
 
+## Windows 自动构建与发布
+
+GitHub Actions 配置位于 [windows-release.yml](.github/workflows/windows-release.yml)。
+
+- 推送到 `main` 或提交 Pull Request：编译 Windows x64 版本，上传保留 14 天的构建产物。
+- 推送版本标签（例如 `v0.1.0`）：测试、编译后自动创建 GitHub Release，附带便携 ZIP 和 SHA-256 校验文件。
+- Actions → Windows build and release → Run workflow：不填 tag 时只构建；填已有版本标签可重新运行发布。
+
+标签必须与根 `Cargo.toml` 的版本一致。发布新版本时先更新版本并提交，再执行：
+
+```powershell
+git tag v0.1.0
+git push origin main
+git push origin v0.1.0
+```
+
+下载 Release 压缩包，解压后运行 `WinMail.exe`。构建使用静态 C 运行库；可选 WebView 后端仍需系统安装 WebView2 Runtime。
+
 ## 快速开始
 
 ### 构建环境
