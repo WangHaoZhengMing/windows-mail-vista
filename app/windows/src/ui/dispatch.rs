@@ -207,6 +207,11 @@ pub(super) unsafe extern "system" fn window_proc(
                 if let Some(result) = classic::custom_draw(lp) {
                     return result;
                 }
+                if let Ok(mut state) = host.state.try_borrow_mut()
+                    && let Some(result) = state.list_notification(lp)
+                {
+                    return result;
+                }
                 if host.suppress_notifications.get() {
                     return 0;
                 }

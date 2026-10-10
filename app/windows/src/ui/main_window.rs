@@ -126,7 +126,6 @@ fn edit_lines(value: &str) -> String {
 }
 
 struct SyncProgress {
-    account: AccountId,
     remaining: usize,
     downloaded: usize,
 }
@@ -153,9 +152,12 @@ pub(super) struct MainWindow {
     preview_message: Option<MessageId>,
     readers: Vec<reader_window::Window>,
     pending_reader_deletion: Option<PendingReaderDeletion>,
-    sync_continuation: Option<SyncProgress>,
+    sync_continuation: std::collections::HashMap<AccountId, SyncProgress>,
+    startup_sync: std::collections::VecDeque<AccountId>,
     search_box: Option<SearchBox>,
     menu_bar: Option<MenuBar>,
+    list_rows: Vec<super::message_list::Row>,
+    list_tooltip: Option<Box<super::message_list::Tooltip>>,
 }
 
 pub fn active() -> bool {
@@ -224,6 +226,12 @@ pub fn run(command: &str, show: i32) -> Result<()> {
             window.refresh();
             window.updating.set(false);
             window.apply(command);
+            window.startup_sync = window
+                .app
+                .accounts()
+                .iter()
+                .map(|record| record.id.clone())
+                .collect();
         });
         ShowWindow(hwnd, if show == 0 { SW_SHOWNORMAL } else { show });
         UpdateWindow(hwnd);
@@ -307,9 +315,12 @@ impl MainWindow {
             preview_message: None,
             readers: Vec::new(),
             pending_reader_deletion: None,
-            sync_continuation: None,
+            sync_continuation: Default::default(),
+            startup_sync: Default::default(),
             search_box: None,
             menu_bar: None,
+            list_rows: Vec::new(),
+            list_tooltip: None,
         }
     }
     unsafe fn menu(&self) -> HMENU {
@@ -424,6 +435,12 @@ impl MainWindow {
                         true,
                     ),
                     (
+                        "Stop sync",
+                        command_id(Command::CancelSync),
+                        ToolbarIcon::Delete,
+                        false,
+                    ),
+                    (
                         "Contacts",
                         command_ids::CONTACTS,
                         ToolbarIcon::Contacts,
@@ -518,6 +535,7 @@ impl MainWindow {
                 LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_SHAREIMAGELISTS | WS_TABSTOP,
                 command_ids::LIST,
             );
+            self.list_tooltip = super::message_list::Tooltip::install(hwnd, self.controls.list);
             SendMessageW(
                 self.controls.list,
                 LVM_SETEXTENDEDLISTVIEWSTYLE,
@@ -534,9 +552,9 @@ impl MainWindow {
                 ("!", 22),
                 ("", 22),
                 ("Flag", 30),
-                ("From", 170),
-                ("Subject", 350),
-                ("Received", 150),
+                ("From", 140),
+                ("Subject", 420),
+                ("Received", 96),
             ]
             .iter()
             .enumerate()
@@ -834,7 +852,15 @@ impl MainWindow {
                 (Command::EmptyTrash, idle),
                 (
                     Command::Receive,
-                    idle && self.app.active_account_id().is_some(),
+                    self.app.can_start_sync()
+                        && self
+                            .app
+                            .active_account_id()
+                            .is_some_and(|account| !self.app.account_syncing(account)),
+                ),
+                (
+                    Command::CancelSync,
+                    self.app.syncing() || !self.startup_sync.is_empty(),
                 ),
                 (Command::Reply, selected),
                 (Command::ReplyAll, selected),
@@ -856,16 +882,18 @@ impl MainWindow {
                     enabled as isize,
                 );
             }
+            let activity = if self.app.syncing() {
+                format!("Sync: {}", self.app.sync_count())
+            } else if self.app.busy() {
+                "Working…".into()
+            } else {
+                "Ready".into()
+            };
             SendMessageW(
                 self.controls.status,
                 SB_SETTEXTW,
                 1,
-                wide(if self.app.busy() {
-                    "Working…"
-                } else {
-                    "Ready"
-                })
-                .as_ptr() as isize,
+                wide(&activity).as_ptr() as isize,
             );
         }
     }
@@ -879,6 +907,19 @@ impl MainWindow {
                 _ => ReadFilter::All,
             };
             let entries = self.app.list_messages(filter, &text(self.controls.search));
+            if let Some(tooltip) = &self.list_tooltip {
+                tooltip.hide();
+            }
+            self.list_rows = entries
+                .iter()
+                .map(|entry| {
+                    super::message_list::Row::new(
+                        &entry.summary.from,
+                        &entry.summary.date,
+                        entry.read,
+                    )
+                })
+                .collect();
             if self.app.selected_id().is_none() {
                 self.clear_preview();
             }
@@ -912,9 +953,9 @@ impl MainWindow {
                             String::new()
                         },
                     ),
-                    (3, &entry.summary.from),
+                    (3, &super::message_list::sender(&entry.summary.from)),
                     (4, &entry.summary.subject),
-                    (5, &entry.summary.date),
+                    (5, &super::message_list::received(&entry.summary.date)),
                 ] {
                     let value = wide(value);
                     let item = LVITEMW {
@@ -962,6 +1003,60 @@ impl MainWindow {
             self.update_actions();
         }
     }
+    pub(super) fn list_notification(&mut self, lp: isize) -> Option<isize> {
+        unsafe {
+            if lp == 0 {
+                return None;
+            }
+            let header = (lp as *const NMHDR).read_unaligned();
+            if header.hwndFrom == self.controls.list && header.code == NM_CUSTOMDRAW {
+                let draw = (lp as *const NMLVCUSTOMDRAW).read_unaligned();
+                match draw.nmcd.dwDrawStage {
+                    CDDS_PREPAINT => return Some(CDRF_NOTIFYITEMDRAW as isize),
+                    CDDS_ITEMPREPAINT => return Some(CDRF_NOTIFYSUBITEMDRAW as isize),
+                    stage if stage == CDDS_ITEMPREPAINT | CDDS_SUBITEM => {
+                        let unread = self
+                            .list_rows
+                            .get(draw.nmcd.dwItemSpec)
+                            .is_some_and(|row| row.unread);
+                        let weight = if unread && matches!(draw.iSubItem, 3 | 4) {
+                            dpi::FontWeight::Bold
+                        } else {
+                            dpi::FontWeight::Regular
+                        };
+                        let font = self.metrics.font(weight);
+                        if !font.is_null() {
+                            SelectObject(draw.nmcd.hdc, font);
+                        }
+                        return Some(CDRF_NEWFONT as isize);
+                    }
+                    _ => return Some(CDRF_DODEFAULT as isize),
+                }
+            }
+            if self
+                .list_tooltip
+                .as_ref()
+                .is_some_and(|tooltip| tooltip.window == header.hwndFrom)
+                && header.code == TTN_GETDISPINFOW
+            {
+                static EMPTY: [u16; 1] = [0];
+                let tip = super::message_list::hovered(self.controls.list)
+                    .and_then(|(index, column)| {
+                        let row = self.list_rows.get(index)?;
+                        match column {
+                            3 => Some(row.from_tip.as_ptr()),
+                            5 => Some(row.date_tip.as_ptr()),
+                            _ => None,
+                        }
+                    })
+                    .unwrap_or(EMPTY.as_ptr());
+                let notification = lp as *mut NMTTDISPINFOW;
+                std::ptr::addr_of_mut!((*notification).lpszText).write_unaligned(tip.cast_mut());
+                return Some(0);
+            }
+            None
+        }
+    }
     fn select(&mut self) -> Result<()> {
         let index = unsafe {
             SendMessageW(
@@ -985,6 +1080,9 @@ impl MainWindow {
                 self.status("Double-click or press Enter to edit this draft");
             }
             Selection::Message(parsed) => {
+                if let Some(row) = self.list_rows.get_mut(index as usize) {
+                    row.unread = false;
+                }
                 unsafe {
                     set(self.controls.preview_from, &parsed.summary.from);
                     set(self.controls.preview_to, &parsed.summary.to);
@@ -1001,6 +1099,7 @@ impl MainWindow {
                         0,
                         &item as *const _ as isize,
                     );
+                    InvalidateRect(self.controls.list, null(), 0);
                 }
                 if self.selected_pending_delete() {
                     self.status(
@@ -1391,8 +1490,18 @@ impl MainWindow {
             },
             Command::Receive => {
                 self.app.receive()?;
-                self.sync_continuation = self.app.active_account_id().cloned().map(|account| SyncProgress { account, remaining: 49, downloaded: 0 });
+                if let Some(account) = self.app.active_account_id() {
+                    self.startup_sync.retain(|queued| queued != account);
+                }
+                if let Some(account) = self.app.active_account_id().cloned() { self.sync_continuation.insert(account, SyncProgress { remaining: 49, downloaded: 0 }); }
                 self.status("Synchronizing server folders and message flags…");
+            }
+            Command::CancelSync => {
+                self.startup_sync.clear();
+                self.sync_continuation.clear();
+                self.app.cancel_sync();
+                self.status("Stopping synchronization; completed downloads are saved…");
+                self.update_actions();
             }
             Command::MarkRead | Command::MarkUnread => {
                 self.app.mark_selected_read(command == Command::MarkRead)?;
@@ -1513,12 +1622,60 @@ impl MainWindow {
         })
     }
     fn poll(&mut self) {
-        let Some(completion) = self.app.poll() else {
-            return;
-        };
-        self.mail_completed(completion);
+        if self.app.can_start_sync() {
+            while let Some(account) = self.startup_sync.pop_front() {
+                // An account may have been removed while earlier accounts synchronized.
+                if !self
+                    .app
+                    .accounts()
+                    .iter()
+                    .any(|record| record.id == account)
+                {
+                    continue;
+                }
+                match self.app.receive_for(&account) {
+                    Ok(()) => {
+                        self.sync_continuation.insert(
+                            account.clone(),
+                            SyncProgress {
+                                remaining: 49,
+                                downloaded: 0,
+                            },
+                        );
+                        self.status(&format!(
+                            "{}: starting background synchronization…",
+                            self.account_label(&account)
+                        ));
+                        self.update_actions();
+                        if !self.app.can_start_sync() {
+                            break;
+                        }
+                    }
+                    Err(error) => self.status(&error),
+                }
+            }
+        }
+        // Drain bursts of download updates so completion does not sit behind
+        // hundreds of status messages, while keeping each UI tick bounded.
+        for _ in 0..64 {
+            let Some(completion) = self.app.poll() else {
+                break;
+            };
+            let progress = matches!(completion, MailCompletion::Progress { .. });
+            self.mail_completed(completion);
+            if !progress {
+                break;
+            }
+        }
     }
     fn mail_completed(&mut self, completion: MailCompletion) {
+        let completion = match completion {
+            MailCompletion::Progress { account, message } => {
+                self.status(&format!("{}: {message}", self.account_label(&account)));
+                return;
+            }
+            completion => completion,
+        };
         if let Some(pending) = self.pending_reader_deletion.take() {
             let entry = self.app.message_entry(&pending.message);
             let finished = match pending.action {
@@ -1539,13 +1696,24 @@ impl MainWindow {
             }
         }
         match completion {
+            MailCompletion::Cancelled { account } => {
+                self.sync_continuation.remove(&account);
+                self.refresh();
+                self.status(&format!(
+                    "{}: synchronization stopped; completed downloads will resume next time",
+                    self.account_label(&account)
+                ));
+            }
+            MailCompletion::SyncFailed { account, error } => {
+                self.sync_continuation.remove(&account);
+                self.refresh();
+                self.status(&format!("{}: {error}", self.account_label(&account)));
+            }
+            MailCompletion::Progress { .. } => unreachable!("Progress handled above"),
             MailCompletion::Synced { account, summary } => {
                 self.rebuild_folders();
                 self.refresh();
-                let progress = self
-                    .sync_continuation
-                    .take()
-                    .filter(|progress| progress.account == account);
+                let progress = self.sync_continuation.remove(&account);
                 let remaining = progress.as_ref().map_or(0, |progress| progress.remaining);
                 let downloaded =
                     summary.downloaded + progress.map_or(0, |progress| progress.downloaded);
@@ -1556,11 +1724,13 @@ impl MainWindow {
                 {
                     match self.app.receive_for(&account) {
                         Ok(()) => {
-                            self.sync_continuation = Some(SyncProgress {
-                                account: account.clone(),
-                                remaining: remaining - 1,
-                                downloaded,
-                            });
+                            self.sync_continuation.insert(
+                                account.clone(),
+                                SyncProgress {
+                                    remaining: remaining - 1,
+                                    downloaded,
+                                },
+                            );
                             self.status(&format!(
                                 "{}: synchronized {} messages, downloading the next batch…",
                                 self.account_label(&account),
@@ -1596,6 +1766,7 @@ impl MainWindow {
                 }
             }
             MailCompletion::Received { account, count } => {
+                self.sync_continuation.remove(&account);
                 self.refresh();
                 self.status(&format!(
                     "Received {count} messages for {}",
@@ -1620,7 +1791,7 @@ impl MainWindow {
                 self.refresh();
             }
             MailCompletion::Failed(error) => {
-                self.sync_continuation = None;
+                self.sync_continuation.clear();
                 self.refresh();
                 self.status(&error);
             }
@@ -1645,7 +1816,11 @@ impl MainWindow {
                     Err(error) => self.status(&error),
                 }
             }
-            MailCompletion::WorkerStopped => self.status("Mail worker stopped unexpectedly"),
+            MailCompletion::WorkerStopped => {
+                self.sync_continuation.clear();
+                self.update_actions();
+                self.status("Mail worker stopped unexpectedly");
+            }
         }
     }
 }
@@ -1797,7 +1972,7 @@ impl MainWindow {
             }
             WindowEvent::Poll => self.poll(),
             WindowEvent::Close => {
-                if self.app.busy() {
+                if self.app.busy() && !self.app.syncing() {
                     unsafe {
                         MessageBoxW(
                             hwnd,
@@ -1809,6 +1984,8 @@ impl MainWindow {
                     }
                     return;
                 }
+                self.app.cancel_sync();
+                self.startup_sync.clear();
                 for index in 0..self.composers.len() {
                     self.active_composer = Some(ComposerId::new(index));
                     if let Err(error) = self.close_composer() {
@@ -2026,6 +2203,11 @@ mod tests {
             let account_tx = host.with_window(|window| window.account_tx.clone());
             let account = account_window::open(hwnd, Vec::new(), None, account_tx).unwrap();
             SendMessageW(account, WM_COMMAND, account_window::ADD_ACCOUNT as usize, 0);
+            let wizard = FindWindowW(wide("WinMailRustAccountWizard").as_ptr(), null());
+            assert_eq!(GetWindow(wizard, GW_OWNER), account);
+            SendMessageW(wizard, WM_COMMAND, 760, 0);
+            SetWindowTextW(GetDlgItem(wizard, 763), wide("dpi@example.test").as_ptr());
+            SendMessageW(wizard, WM_COMMAND, 760, 0);
             let properties = FindWindowW(wide("WinMailRustAccountProperties").as_ptr(), null());
             assert_eq!(GetWindow(properties, GW_OWNER), account);
             assert_ne!(properties, account);
@@ -2066,7 +2248,7 @@ mod tests {
                     assert_eq!(rect.bottom - rect.top, dpi::scale(22, value));
                     assert_eq!(
                         SendMessageW(list, LVM_GETCOLUMNWIDTH, 3, 0),
-                        dpi::scale(170, value) as isize
+                        dpi::scale(140, value) as isize
                     );
                     for (image, set) in
                         icons

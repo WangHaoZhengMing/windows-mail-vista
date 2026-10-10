@@ -253,7 +253,40 @@ fn manager_cancel_validation_owner_failure_save_default_and_dpi() {
         );
         assert_eq!(property(manager), editor);
         assert_eq!(IsWindowEnabled(manager), 0);
-        SendMessageW(editor, WM_COMMAND, IDCANCEL as usize, 0);
+        SendMessageW(GetDlgItem(editor, 762), LB_SETCURSEL, 2, 0);
+        SendMessageW(editor, WM_COMMAND, 760, 0);
+        set_window_text(GetDlgItem(editor, 763), "wizard@outlook.com");
+        set_window_text(GetDlgItem(editor, 764), "Wizard account");
+        SendMessageW(editor, WM_COMMAND, 761, 0);
+        assert_eq!(text(GetDlgItem(editor, 763)), "wizard@outlook.com");
+        SendMessageW(editor, WM_COMMAND, 760, 0);
+        SendMessageW(editor, WM_COMMAND, 760, 0);
+        assert_eq!(IsWindow(editor), 0);
+        let review = property(manager);
+        assert_ne!(IsWindow(review), 0);
+        assert_eq!(
+            text(GetDlgItem(review, 300 + Field::Email as i32)),
+            "wizard@outlook.com"
+        );
+        assert_eq!(
+            text(GetDlgItem(review, 300 + Field::IncomingHost as i32)),
+            "outlook.office365.com"
+        );
+        assert_eq!(
+            text(GetDlgItem(review, 300 + Field::SmtpPort as i32)),
+            "587"
+        );
+        assert_eq!(
+            SendMessageW(
+                GetDlgItem(review, properties::AUTHENTICATION as i32),
+                CB_GETCURSEL,
+                0,
+                0
+            ),
+            1
+        );
+        assert_eq!(state.count, 0, "wizard review must not save an account");
+        SendMessageW(review, WM_COMMAND, IDCANCEL as usize, 0);
         assert_eq!(IsWindow(editor), 0);
         assert_eq!(state.count, 0);
         assert_ne!(IsWindowEnabled(manager), 0);
@@ -340,7 +373,7 @@ fn manager_cancel_validation_owner_failure_save_default_and_dpi() {
         SendMessageW(manager, WM_COMMAND, DEFAULT_ACCOUNT as usize, 0);
         assert_eq!(state.store.default_account_id(), Some(&second));
         assert_eq!(state.count, 3);
-        SendMessageW(manager, WM_COMMAND, ADD_ACCOUNT as usize, 0);
+        properties::open(manager, None);
         let editor = property(manager);
         for (field, value) in [
             (Field::Name, "Third account"),

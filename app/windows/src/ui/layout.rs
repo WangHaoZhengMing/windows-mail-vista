@@ -245,8 +245,8 @@ impl WindowLayout {
             );
             SendMessageW(controls.status, WM_SIZE, 0, 0);
             let parts = [
-                dpi::scale((width - 340).max(200), dpi_value),
-                dpi::scale((width - 150).max(300), dpi_value),
+                dpi::scale(230.min((width / 3).max(100)), dpi_value),
+                dpi::scale(310.min((width / 3).max(100) + 80), dpi_value),
                 -1,
             ];
             SendMessageW(controls.status, SB_SETPARTS, 3, parts.as_ptr() as isize);

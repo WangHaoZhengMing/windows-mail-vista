@@ -29,7 +29,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
         .add_account_named("Second account".into(), second_config)
         .unwrap();
     let raw =
-        b"From: sender@example.com\r\nTo: recipient@example.com\r\nSubject: Ownership\r\n\r\nBody";
+        b"From: Sender Name <sender@example.com>\r\nTo: recipient@example.com\r\nSubject: Ownership\r\n\r\nBody";
     let first_message = store.import_for(Some(&first), raw, "Inbox", None).unwrap();
     let second_message = store.import_for(Some(&second), raw, "Inbox", None).unwrap();
     store.import_for(None, raw, "Inbox", None).unwrap();
@@ -73,12 +73,132 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
             SendMessageW(tree, TVM_SELECTITEM, TVGN_CARET as usize, node);
         };
         host.with_window(|window| {
+            window.startup_sync.extend([first.clone(), second.clone()]);
+            window.sync_continuation.insert(
+                first.clone(),
+                SyncProgress {
+                    remaining: 49,
+                    downloaded: 0,
+                },
+            );
+            window.sync_continuation.insert(
+                second.clone(),
+                SyncProgress {
+                    remaining: 49,
+                    downloaded: 0,
+                },
+            );
+            window.update_actions();
+            assert_ne!(
+                SendMessageW(
+                    window.controls.toolbar,
+                    TB_ISBUTTONENABLED,
+                    command_id(Command::CancelSync) as usize,
+                    0
+                ),
+                0
+            );
+            window.mail_completed(MailCompletion::Cancelled {
+                account: first.clone(),
+            });
+            assert!(!window.sync_continuation.contains_key(&first));
+            assert!(
+                window.sync_continuation.contains_key(&second),
+                "Stopping one account must not discard another account's continuation"
+            );
+            window.action(hwnd, Command::CancelSync).unwrap();
+            assert!(window.startup_sync.is_empty());
+            assert!(window.sync_continuation.is_empty());
+            assert_eq!(
+                SendMessageW(
+                    window.controls.toolbar,
+                    TB_ISBUTTONENABLED,
+                    command_id(Command::CancelSync) as usize,
+                    0
+                ),
+                0
+            );
             assert_eq!(window.app.scope(), &DataScope::Account(first.clone()));
             assert_eq!(
                 window.app.list_messages(ReadFilter::All, "")[0].id,
                 first_message
             );
         });
+        let list = host.with_window(|window| window.controls.list);
+        let mut buffer = [0u16; 256];
+        let item = LVITEMW {
+            iSubItem: 3,
+            pszText: buffer.as_mut_ptr(),
+            cchTextMax: buffer.len() as i32,
+            ..Default::default()
+        };
+        SendMessageW(list, LVM_GETITEMTEXTW, 0, &item as *const _ as isize);
+        assert_eq!(
+            String::from_utf16_lossy(
+                &buffer[..buffer.iter().position(|value| *value == 0).unwrap()]
+            ),
+            "Sender Name"
+        );
+        host.with_window(|window| {
+            assert!(window.list_rows[0].unread);
+            assert_eq!(
+                window.list_rows[0].from_tip,
+                wide("Sender Name <sender@example.com>")
+            );
+            let tooltip = window.list_tooltip.as_ref().unwrap();
+            let mut tool = TTTOOLINFOW {
+                cbSize: std::mem::offset_of!(TTTOOLINFOW, lpReserved) as u32,
+                hwnd,
+                uId: list as usize,
+                ..Default::default()
+            };
+            assert_ne!(
+                SendMessageW(
+                    tooltip.window,
+                    TTM_GETTOOLINFOW,
+                    0,
+                    &mut tool as *mut _ as isize
+                ),
+                0
+            );
+            assert_ne!(tool.uFlags & TTF_SUBCLASS, 0);
+        });
+        let dc = GetDC(list);
+        let mut draw = NMLVCUSTOMDRAW {
+            nmcd: NMCUSTOMDRAW {
+                hdr: NMHDR {
+                    hwndFrom: list,
+                    idFrom: command_ids::LIST as usize,
+                    code: NM_CUSTOMDRAW,
+                },
+                dwDrawStage: CDDS_ITEMPREPAINT | CDDS_SUBITEM,
+                hdc: dc,
+                dwItemSpec: 0,
+                ..Default::default()
+            },
+            iSubItem: 3,
+            ..Default::default()
+        };
+        for (column, weight) in [(3, FW_BOLD), (4, FW_BOLD), (5, FW_NORMAL)] {
+            draw.iSubItem = column;
+            assert_eq!(
+                SendMessageW(
+                    hwnd,
+                    WM_NOTIFY,
+                    command_ids::LIST as usize,
+                    &mut draw as *mut _ as isize
+                ),
+                CDRF_NEWFONT as isize
+            );
+            let mut font = LOGFONTW::default();
+            GetObjectW(
+                GetCurrentObject(dc, OBJ_FONT as u32),
+                std::mem::size_of::<LOGFONTW>() as i32,
+                (&mut font as *mut LOGFONTW).cast(),
+            );
+            assert_eq!(font.lfWeight, weight as i32);
+        }
+        ReleaseDC(list, dc);
         switch_folder(DataScope::Account(second.clone()), Folder::Inbox);
         let list = host.with_window(|window| window.controls.list);
         let selection = LVITEMW {
@@ -88,6 +208,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
         };
         SendMessageW(list, LVM_SETITEMSTATE, 0, &selection as *const _ as isize);
         host.with_window(|window| {
+            assert!(!window.list_rows[0].unread);
             assert_eq!(window.app.selected_id().unwrap().as_str(), second_message);
             window.new_message(Draft::default());
             assert_eq!(window.composers[0].sender_id().as_ref(), Some(&second));

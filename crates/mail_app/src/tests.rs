@@ -56,6 +56,72 @@ fn account(email: &str) -> Account {
 }
 
 #[test]
+fn three_accounts_connect_concurrently_and_cancel_without_releasing_their_locks_early() {
+    use std::{
+        io::Read,
+        net::TcpListener,
+        thread,
+        time::{Duration, Instant},
+    };
+    let temp = Temp::new();
+    let mut app = AppState::new(temp.store());
+    let (ready_tx, ready_rx) = mpsc::channel();
+    let mut servers = Vec::new();
+    let mut accounts = Vec::new();
+    for index in 0..3 {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let mut configuration = account(&format!("parallel{index}@example.test"));
+        configuration.incoming_port = listener.local_addr().unwrap().port();
+        let id = app.add_account(configuration).unwrap();
+        let ready = ready_tx.clone();
+        servers.push(thread::spawn(move || {
+            let (mut stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            ready.send(()).unwrap();
+            let mut byte = [0];
+            assert_eq!(
+                stream.read(&mut byte).unwrap(),
+                0,
+                "Cancel must interrupt a blocked greeting read"
+            );
+        }));
+        accounts.push(id);
+    }
+    let fourth = app.add_account(account("fourth@example.test")).unwrap();
+    for id in &accounts {
+        app.receive_for(id).unwrap();
+    }
+    assert_eq!(app.sync_count(), 3);
+    for _ in 0..3 {
+        ready_rx
+            .recv_timeout(Duration::from_secs(2))
+            .expect("All three servers must be reached without completing any account");
+    }
+    assert!(app.receive_for(&accounts[0]).is_err());
+    assert!(app.receive_for(&fourth).is_err());
+    app.cancel_sync();
+    assert!(
+        app.busy(),
+        "Cancellation must keep task locks until workers terminate"
+    );
+    let deadline = Instant::now() + Duration::from_secs(3);
+    let mut cancelled = Vec::new();
+    while app.busy() && Instant::now() < deadline {
+        if let Some(MailCompletion::Cancelled { account }) = app.poll() {
+            cancelled.push(account);
+        }
+        thread::yield_now();
+    }
+    assert!(!app.busy());
+    assert_eq!(cancelled.len(), 3);
+    for server in servers {
+        server.join().unwrap();
+    }
+}
+
+#[test]
 fn filtering_and_selection_use_visible_message_identity() {
     let temp = Temp::new();
     let mut store = temp.store();
@@ -278,6 +344,20 @@ fn worker_completion_updates_store_and_reports_the_original_composer() {
     app.worker = Some(receiver);
     assert!(app.busy());
     assert!(app.poll().is_none());
+    sender
+        .send(WorkerResult::Progress {
+            account: account.clone(),
+            message: "Downloading 1 message".into(),
+        })
+        .unwrap();
+    assert!(
+        matches!(app.poll(), Some(MailCompletion::Progress { account: id, message }) if id == account && message == "Downloading 1 message")
+    );
+    assert!(
+        app.busy(),
+        "Progress must not release the worker or allow overlapping operations"
+    );
+    assert!(app.receive_for(&account).is_err());
     sender
         .send(WorkerResult::Inbox {
             account: account.clone(),

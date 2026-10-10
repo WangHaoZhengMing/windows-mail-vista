@@ -356,7 +356,7 @@ fn assert_compact_geometry(window: &MainWindow, dpi_value: u32, width: i32) {
     assert!(edit.top >= search.top && edit.bottom <= search.bottom);
     unsafe {
         let count = SendMessageW(controls.toolbar, TB_BUTTONCOUNT, 0, 0);
-        assert_eq!(count, 9, "collapsing captions must retain every command");
+        assert_eq!(count, 10, "collapsing captions must retain every command");
         let mut last = RECT::default();
         assert_ne!(
             SendMessageW(

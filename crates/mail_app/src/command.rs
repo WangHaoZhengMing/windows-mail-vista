@@ -19,6 +19,7 @@ pub enum Command {
     Attach,
     ConfigureAccount,
     Receive,
+    CancelSync,
     SaveDraft,
     Send,
     Delete,

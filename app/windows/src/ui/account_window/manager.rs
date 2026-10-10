@@ -366,7 +366,7 @@ unsafe fn manager_change(window: HWND, command: u16) {
             state.selected().cloned()
         };
         if command == ADD_ACCOUNT {
-            properties::open(window, None);
+            wizard::open(window);
             return;
         }
         let Some(selected) = selected else {

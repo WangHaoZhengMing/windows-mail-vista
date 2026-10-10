@@ -677,9 +677,11 @@ dependencies = [
 name = "mail_windows"
 version = "0.1.0"
 dependencies = [
+ "chrono",
  "mail_app",
  "mail_core",
  "mail_windows_platform",
+ "mailparse",
  "serde",
  "serde_json",
  "windows-sys",

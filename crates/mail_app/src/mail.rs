@@ -8,7 +8,22 @@ use mail_core::{
 };
 use std::{path::Path, sync::mpsc};
 
+pub(super) struct SyncTask {
+    pub account: AccountId,
+    pub receiver: mpsc::Receiver<WorkerResult>,
+    pub control: network::SyncControl,
+}
+impl Drop for SyncTask {
+    fn drop(&mut self) {
+        self.control.cancel();
+    }
+}
+
 pub(super) enum WorkerResult {
+    Progress {
+        account: AccountId,
+        message: String,
+    },
     Credentials {
         account: AccountId,
         connection: String,
@@ -66,6 +81,17 @@ struct ChangePlan {
 
 /// Results are applied to the store before being reported to the UI.
 pub enum MailCompletion {
+    SyncFailed {
+        account: AccountId,
+        error: String,
+    },
+    Cancelled {
+        account: AccountId,
+    },
+    Progress {
+        account: AccountId,
+        message: String,
+    },
     Moved {
         id: MessageId,
         deferred: bool,
@@ -405,7 +431,26 @@ impl AppState {
     }
 
     pub fn busy(&self) -> bool {
-        self.worker.is_some()
+        self.worker.is_some() || !self.sync_workers.is_empty()
+    }
+    pub fn syncing(&self) -> bool {
+        !self.sync_workers.is_empty()
+    }
+    pub fn sync_count(&self) -> usize {
+        self.sync_workers.len()
+    }
+    pub fn can_start_sync(&self) -> bool {
+        self.worker.is_none() && self.sync_workers.len() < 3
+    }
+    pub fn account_syncing(&self, account: &AccountId) -> bool {
+        self.sync_workers
+            .iter()
+            .any(|task| &task.account == account)
+    }
+    pub fn cancel_sync(&self) {
+        for task in &self.sync_workers {
+            task.control.cancel();
+        }
     }
 
     pub fn receive(&mut self) -> Result<()> {
@@ -416,7 +461,12 @@ impl AppState {
         self.receive_for(&id)
     }
     pub fn receive_for(&mut self, id: &AccountId) -> Result<()> {
-        self.ensure_idle()?;
+        if !self.can_start_sync() {
+            return Err("Mail task limit reached; wait for an operation to finish".into());
+        }
+        if self.account_syncing(id) {
+            return Err("This account is already synchronizing".into());
+        }
         let id = id.clone();
         let mut account = self
             .store
@@ -426,24 +476,57 @@ impl AppState {
             .clone();
         let known = self.store.known_remote_for(&id);
         let request = self.store.imap_sync_request(&id)?;
+        let control =
+            network::SyncControl::new(self.store.root().join("sync-checkpoints").join(id.as_str()));
+        let thread_control = control.clone();
+        let worker_id = id.clone();
         let (sender, receiver) = mpsc::channel();
-        std::thread::spawn(move || {
-            let refreshed = super::sync::refresh_credentials(&id, &mut account, &sender);
-            if account.incoming == Incoming::Imap {
-                let result = refreshed.and_then(|_| network::sync_imap(&account, &request));
-                let _ = sender.send(WorkerResult::Synced {
-                    account: id,
-                    result,
-                });
-            } else {
-                let result = refreshed.and_then(|_| network::receive(&account, &known));
-                let _ = sender.send(WorkerResult::Inbox {
-                    account: id,
-                    result,
-                });
-            }
+        std::thread::Builder::new()
+            .name("mail-account-sync".into())
+            .spawn(move || {
+                let progress = |message| {
+                    let _ = sender.send(WorkerResult::Progress {
+                        account: id.clone(),
+                        message,
+                    });
+                };
+                progress("Preparing account and authentication…".into());
+                let refreshed = super::sync::refresh_credentials(&id, &mut account, &sender);
+                if account.incoming == Incoming::Imap {
+                    let result = refreshed.and_then(|_| {
+                        network::sync_imap_controlled(
+                            &account,
+                            &request,
+                            &mut { progress },
+                            &thread_control,
+                        )
+                    });
+                    let _ = sender.send(WorkerResult::Synced {
+                        account: id,
+                        result,
+                    });
+                } else {
+                    progress("Connecting and downloading POP3 messages…".into());
+                    let result = refreshed.and_then(|_| {
+                        network::receive_controlled(
+                            &account,
+                            &known,
+                            &mut { progress },
+                            &thread_control,
+                        )
+                    });
+                    let _ = sender.send(WorkerResult::Inbox {
+                        account: id,
+                        result,
+                    });
+                }
+            })
+            .map_err(|error| error.to_string())?;
+        self.sync_workers.push(SyncTask {
+            account: worker_id,
+            receiver,
+            control,
         });
-        self.worker = Some(receiver);
         Ok(())
     }
 
@@ -497,8 +580,57 @@ impl AppState {
     }
 
     pub fn poll(&mut self) -> Option<MailCompletion> {
+        if self.worker.is_some() {
+            return self.poll_worker(None);
+        }
+        for _ in 0..self.sync_workers.len() {
+            let mut task = self.sync_workers.remove(0);
+            // Use the same credential/store completion path for every account;
+            // only network workers run concurrently, catalog writes stay serialized.
+            let (_, placeholder) = mpsc::channel();
+            self.worker = Some(std::mem::replace(&mut task.receiver, placeholder));
+            let result = self.poll_worker(Some((&task.account, &task.control)));
+            let result = result.map(|completion| match completion {
+                MailCompletion::Failed(error) => MailCompletion::SyncFailed {
+                    account: task.account.clone(),
+                    error,
+                },
+                MailCompletion::WorkerStopped if task.control.is_cancelled() => {
+                    MailCompletion::Cancelled {
+                        account: task.account.clone(),
+                    }
+                }
+                MailCompletion::WorkerStopped => MailCompletion::SyncFailed {
+                    account: task.account.clone(),
+                    error: "Mail worker stopped unexpectedly".into(),
+                },
+                completion => completion,
+            });
+            if let Some(receiver) = self.worker.take() {
+                task.receiver = receiver;
+                self.sync_workers.push(task);
+            }
+            if result.is_some() {
+                return result;
+            }
+        }
+        None
+    }
+
+    fn poll_worker(
+        &mut self,
+        sync: Option<(&AccountId, &network::SyncControl)>,
+    ) -> Option<MailCompletion> {
         let result = loop {
             match self.worker.as_ref()?.try_recv() {
+                Ok(WorkerResult::Progress { account, message }) => {
+                    let message = if sync.is_some_and(|(_, control)| control.is_cancelled()) {
+                        "Stopping synchronization…".into()
+                    } else {
+                        message
+                    };
+                    return Some(MailCompletion::Progress { account, message });
+                }
                 Ok(WorkerResult::Credentials {
                     account,
                     connection,
@@ -529,7 +661,15 @@ impl AppState {
             }
         };
         self.worker = None;
+        if let Some((account, control)) = sync
+            && control.is_cancelled()
+        {
+            return Some(MailCompletion::Cancelled {
+                account: account.clone(),
+            });
+        }
         Some(match result {
+            WorkerResult::Progress { .. } => unreachable!("Progress does not complete the worker"),
             WorkerResult::Moved { id, result } => self.complete_move(id, result),
             WorkerResult::Credentials { .. } => {
                 unreachable!("Credential events are handled before completion")
@@ -537,13 +677,25 @@ impl AppState {
             WorkerResult::Synced {
                 account,
                 result: Ok(report),
-            } => match self.store.apply_imap_sync(&account, report) {
-                Ok(summary) => {
-                    self.reconcile_server_selection();
-                    MailCompletion::Synced { account, summary }
+            } => {
+                let keys: Vec<_> = report
+                    .downloads
+                    .iter()
+                    .map(|item| item.location.remote_key())
+                    .collect();
+                match self.store.apply_imap_sync(&account, report) {
+                    Ok(summary) => {
+                        if let Some((_, control)) = sync {
+                            for key in &keys {
+                                control.committed(key);
+                            }
+                        }
+                        self.reconcile_server_selection();
+                        MailCompletion::Synced { account, summary }
+                    }
+                    Err(error) => MailCompletion::Failed(error),
                 }
-                Err(error) => MailCompletion::Failed(error),
-            },
+            }
             WorkerResult::Synced {
                 result: Err(error), ..
             } => MailCompletion::Failed(error),
@@ -557,9 +709,12 @@ impl AppState {
                         Some(&account),
                         &item.raw,
                         Folder::Inbox.storage_key(),
-                        Some(item.key),
+                        Some(item.key.clone()),
                     ) {
                         return Some(MailCompletion::Failed(error));
+                    }
+                    if let Some((_, control)) = sync {
+                        control.committed(&item.key);
                     }
                 }
                 MailCompletion::Received { account, count }

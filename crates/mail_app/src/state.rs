@@ -171,6 +171,7 @@ pub struct AppState {
     selected: Option<MessageId>,
     visible: Vec<MessageId>,
     pub(super) worker: Option<Receiver<WorkerResult>>,
+    pub(super) sync_workers: Vec<super::mail::SyncTask>,
 }
 
 impl AppState {
@@ -189,6 +190,7 @@ impl AppState {
             selected: None,
             visible: Vec::new(),
             worker: None,
+            sync_workers: Vec::new(),
         };
         app.reconcile_server_selection();
         app

@@ -234,8 +234,92 @@ fn sync(
     id: &mail_core::account::AccountId,
     account: &Account,
 ) -> mail_core::store::SyncSummary {
-    let report = network::sync_imap(account, &store.imap_sync_request(id).unwrap()).unwrap();
+    let mut events = Vec::new();
+    let report = network::sync_imap_with_progress(
+        account,
+        &store.imap_sync_request(id).unwrap(),
+        &mut |event| events.push(event),
+    )
+    .unwrap();
+    assert!(events.iter().any(|event| event.contains("Connecting")));
+    assert!(events.iter().any(|event| event.contains("Checked")));
+    if !report.downloads.is_empty() {
+        assert!(events.iter().any(|event| event.contains(" KB")));
+    }
     store.apply_imap_sync(id, report).unwrap()
+}
+
+#[test]
+fn cancelled_sync_keeps_each_completed_body_and_restart_does_not_fetch_it_again() {
+    let fixture = Fixture::new(BTreeMap::from([(
+        "INBOX".into(),
+        mailbox(
+            "",
+            &[
+                (1, "first", ImapFlags::default()),
+                (2, "second", ImapFlags::default()),
+            ],
+        ),
+    )]));
+    let account = fixture.account();
+    let (root, mut store) = store();
+    let id = store.add_account(account.clone()).unwrap();
+    let directory = root.join("checkpoints");
+    let control = network::SyncControl::new(directory.clone());
+    let cancelled = control.clone();
+    let request = store.imap_sync_request(&id).unwrap();
+    let result = network::sync_imap_controlled(
+        &account,
+        &request,
+        &mut |event| {
+            if event.contains("downloaded 1 new messages") {
+                cancelled.cancel();
+            }
+        },
+        &control,
+    );
+    assert!(result.is_err());
+    assert!(
+        store.entries().is_empty(),
+        "An interrupted snapshot must not reconcile the catalog"
+    );
+    assert_eq!(
+        std::fs::read_dir(&directory).unwrap().count(),
+        1,
+        "The fully downloaded message must already be durable"
+    );
+    drop(store);
+    let mut store = Store::open(&root).unwrap();
+    let resumed = network::SyncControl::new(directory);
+    let report = network::sync_imap_controlled(
+        &account,
+        &store.imap_sync_request(&id).unwrap(),
+        &mut |_| {},
+        &resumed,
+    )
+    .unwrap();
+    let keys: Vec<_> = report
+        .downloads
+        .iter()
+        .map(|download| download.location.remote_key())
+        .collect();
+    assert_eq!(store.apply_imap_sync(&id, report).unwrap().downloaded, 2);
+    for key in keys {
+        resumed.committed(&key);
+    }
+    assert_eq!(
+        fixture
+            .commands
+            .lock()
+            .unwrap()
+            .iter()
+            .filter(|command| command.as_str() == "UID FETCH 2 (UID BODY.PEEK[])")
+            .count(),
+        1
+    );
+    assert_eq!(store.entries().len(), 2);
+    drop(store);
+    std::fs::remove_dir_all(root).unwrap();
 }
 
 #[test]

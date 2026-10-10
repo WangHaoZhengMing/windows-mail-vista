@@ -1,6 +1,8 @@
 //! Settings navigation and persisted desktop layout preferences.
 use super::*;
-use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOWTEXT, GetSysColor};
+use windows_sys::Win32::Foundation::RECT;
+use windows_sys::Win32::Graphics::Gdi::*;
+use windows_sys::Win32::System::SystemServices::SS_NOPREFIX;
 
 pub(crate) const CHANGED: u32 = WM_APP + 35;
 const NAV: u16 = 700;
@@ -54,9 +56,24 @@ impl Settings {
                 window,
                 "LISTBOX",
                 "",
-                WS_TABSTOP | LBS_NOTIFY as u32,
+                WS_TABSTOP | LBS_NOTIFY as u32 | LBS_OWNERDRAWFIXED as u32 | LBS_HASSTRINGS as u32,
                 NAV,
-                [16, 24, 156, 330],
+                [12, 20, 160, 292],
+            );
+            // Navigation is part of the sidebar, without the account form's inset border.
+            SetWindowLongPtrW(
+                nav,
+                GWL_EXSTYLE,
+                GetWindowLongPtrW(nav, GWL_EXSTYLE) & !(WS_EX_CLIENTEDGE as isize),
+            );
+            SetWindowPos(
+                nav,
+                null_mut(),
+                0,
+                0,
+                0,
+                0,
+                SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_FRAMECHANGED,
             );
             for caption in ["Appearance", "Accounts", "Storage", "About"] {
                 SendMessageW(nav, LB_ADDSTRING, 0, wide(caption).as_ptr() as isize);
@@ -103,7 +120,7 @@ impl Settings {
                 "Show message preview",
                 WS_TABSTOP | BS_AUTOCHECKBOX as u32,
                 711,
-                [196, 160, 380, 28],
+                [196, 154, 380, 28],
             );
             SendMessageW(
                 self.folders,
@@ -117,7 +134,7 @@ impl Settings {
                 usize::from(preferences.preview),
                 0,
             );
-            self.page_control(window, 0, "STATIC", "Changes apply when you select Save changes.\nYour choices are remembered for the next launch.", 0, 0, [196, 230, 380, 54]);
+            self.page_control(window, 0, "STATIC", "Changes apply when you select Save changes.\nYour choices are remembered for the next launch.", 0, 0, [196, 196, 380, 54]);
             self.page_control(
                 window,
                 1,
@@ -208,7 +225,7 @@ impl Settings {
                 "Save changes",
                 WS_TABSTOP | BS_DEFPUSHBUTTON as u32,
                 APPLY,
-                [342, 370, 138, 30],
+                [342, 334, 138, 30],
             );
             self.layout.control(
                 window,
@@ -216,7 +233,7 @@ impl Settings {
                 "Cancel",
                 WS_TABSTOP,
                 IDCANCEL as u16,
-                [492, 370, 84, 30],
+                [492, 334, 84, 30],
             );
             self.layout.update(window, dpi::window_dpi(window));
             for page in &self.pages {
@@ -239,6 +256,11 @@ impl Settings {
         id: u16,
         bounds: [i32; 4],
     ) -> HWND {
+        let style = if class == "STATIC" {
+            style | SS_NOPREFIX
+        } else {
+            style
+        };
         let control = unsafe { self.layout.control(window, class, label, style, id, bounds) };
         self.pages[page].push(control);
         control
@@ -283,7 +305,7 @@ pub(crate) unsafe fn open(owner: HWND) {
             CW_USEDEFAULT,
             CW_USEDEFAULT,
             dpi::scale(610, dpi::window_dpi(owner)),
-            dpi::scale(448, dpi::window_dpi(owner)),
+            dpi::scale(412, dpi::window_dpi(owner)),
             owner,
             null_mut(),
             GetModuleHandleW(null()),
@@ -309,6 +331,110 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
             return DefWindowProcW(window, message, wp, lp);
         }
         match message {
+            WM_DRAWITEM if wp == NAV as usize => {
+                let item = &*(lp as *const DRAWITEMSTRUCT);
+                if item.itemID >= 4 {
+                    return 1;
+                }
+                let selected = item.itemState & ODS_SELECTED != 0;
+                let brush = CreateSolidBrush(if selected { 0x00f4dfc5 } else { 0x00faf5ef });
+                FillRect(item.hDC, &item.rcItem, brush);
+                DeleteObject(brush);
+                if selected {
+                    let accent = CreateSolidBrush(0x00ba7733);
+                    FillRect(
+                        item.hDC,
+                        &RECT {
+                            right: item.rcItem.left + dpi::scale(3, dpi::window_dpi(window)),
+                            ..item.rcItem
+                        },
+                        accent,
+                    );
+                    DeleteObject(accent);
+                }
+                SetBkMode(item.hDC, TRANSPARENT as i32);
+                SetTextColor(item.hDC, if selected { 0x00804416 } else { 0x00604c3c });
+                let caption =
+                    wide(["Appearance", "Accounts", "Storage", "About"][item.itemID as usize]);
+                let mut bounds = item.rcItem;
+                bounds.left += dpi::scale(14, dpi::window_dpi(window));
+                DrawTextW(
+                    item.hDC,
+                    caption.as_ptr(),
+                    -1,
+                    &mut bounds,
+                    DT_SINGLELINE | DT_VCENTER | DT_NOPREFIX,
+                );
+                if item.itemState & ODS_FOCUS != 0 {
+                    DrawFocusRect(item.hDC, &item.rcItem);
+                }
+                1
+            }
+            WM_PAINT => {
+                let mut paint = PAINTSTRUCT::default();
+                let dc = BeginPaint(window, &mut paint);
+                let mut bounds = RECT::default();
+                GetClientRect(window, &mut bounds);
+                let scale = |n| dpi::scale(n, dpi::window_dpi(window));
+                FillRect(dc, &bounds, GetSysColorBrush(COLOR_WINDOW));
+                let brush = CreateSolidBrush(0x00faf5ef);
+                FillRect(
+                    dc,
+                    &RECT {
+                        right: scale(182),
+                        bottom: scale(320),
+                        ..bounds
+                    },
+                    brush,
+                );
+                DeleteObject(brush);
+                FillRect(
+                    dc,
+                    &RECT {
+                        top: scale(320),
+                        ..bounds
+                    },
+                    GetSysColorBrush(COLOR_BTNFACE),
+                );
+                let line = CreateSolidBrush(0x00ddd6ce);
+                FillRect(
+                    dc,
+                    &RECT {
+                        left: scale(182),
+                        right: scale(182) + 1,
+                        bottom: scale(320),
+                        ..bounds
+                    },
+                    line,
+                );
+                FillRect(
+                    dc,
+                    &RECT {
+                        top: scale(320),
+                        bottom: scale(320) + 1,
+                        ..bounds
+                    },
+                    line,
+                );
+                FillRect(
+                    dc,
+                    &RECT {
+                        left: scale(196),
+                        top: scale(56),
+                        right: scale(576),
+                        bottom: scale(56) + 1,
+                    },
+                    line,
+                );
+                DeleteObject(line);
+                EndPaint(window, &paint);
+                0
+            }
+            WM_CTLCOLORLISTBOX => {
+                SetBkColor(wp as HDC, 0x00faf5ef);
+                SetDCBrushColor(wp as HDC, 0x00faf5ef);
+                GetStockObject(DC_BRUSH) as isize
+            }
             WM_COMMAND => {
                 let id = (wp & 0xffff) as u16;
                 match id {
@@ -357,12 +483,38 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
             }
             WM_CTLCOLORSTATIC => {
                 SetBkMode(wp as HDC, TRANSPARENT as i32);
-                SetTextColor(wp as HDC, GetSysColor(COLOR_WINDOWTEXT));
+                let heading = (*pointer)
+                    .pages
+                    .iter()
+                    .any(|page| page.first().copied() == Some(lp as HWND));
+                SetTextColor(
+                    wp as HDC,
+                    if heading {
+                        0x00993300
+                    } else {
+                        GetSysColor(COLOR_WINDOWTEXT)
+                    },
+                );
                 GetSysColorBrush(COLOR_WINDOW) as isize
             }
             WM_DPICHANGED => {
                 (*pointer).layout.update(window, (wp & 0xffff) as u32);
+                for page in &(*pointer).pages {
+                    if let Some(heading) = page.first() {
+                        (*pointer)
+                            .layout
+                            .metrics
+                            .apply_font(*heading, dpi::FontWeight::Bold);
+                    }
+                }
+                SendMessageW(
+                    GetDlgItem(window, NAV as i32),
+                    LB_SETITEMHEIGHT,
+                    0,
+                    dpi::scale(34, (wp & 0xffff) as u32) as isize,
+                );
                 dpi::suggested(window, lp);
+                InvalidateRect(window, null(), 1);
                 0
             }
             WM_CLOSE => {

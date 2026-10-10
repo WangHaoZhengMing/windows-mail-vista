@@ -1,148 +1,236 @@
-# Windows Mail：Rust 邮件客户端
+# Windows Mail
 
-项目根据本机 `WinMail.exe` / `msoe.dll` 的 x64 反汇编分析启动接口，在 Rust 中重建启动行为，并实现邮件引擎和原生 Windows 界面。**普通启动不需要原 Windows Mail 的任何 DLL。** 原安装目录没有被覆盖或修改。
+排版文档见 [README.typ](README.typ)。其中的主窗口、设置页和账户向导使用 CeTZ 直接绘制，不依赖截图。执行 `typst compile README.typ output/pdf/README.pdf` 可生成 PDF。
 
-项目按应用入口、共享功能和资产组织：
+一个使用 Rust 编写的 Windows 桌面邮件客户端。主界面保留经典 Windows Mail 的菜单、蓝色工具栏和文件夹布局，设置与账户配置使用独立窗口。
 
-```text
-app/
-  cli/                  命令行入口，bin winmail-rust
-  windows/
-    src/ui/             Windows 窗口、菜单、布局
-    src/startup/        Windows 启动、单实例、旧参数与 PE 检查
-    platform/           Windows 凭据、锁、控件、DPI、HTML 后端
-    compat/             可选 msoe.dll / Simple MAPI 兼容包
-  macos/
-    src/ui.rs           预留 macOS UI
-    platform/           预留 Keychain、锁、WKWebView 后端
-  linux/
-    src/ui.rs           预留 Linux UI
-    platform/           预留 Secret Service、锁、WebKitGTK 后端
-crates/
-  mail_core/            账户、MIME、存储、邮件协议
-  mail_app/             应用状态、命令、邮件操作
-  mail_html/            平台无关的 HTML 渲染接口和文档类型
-assets/
-  windows/              程序资源、设计源稿与原版参照
-```
+目前可运行的平台是 **Windows x64**。macOS 和 Linux 仅有预留入口与适配目录，尚不能作为完整客户端使用。本项目是独立实现，并未完整复刻旧 Windows Mail 的所有功能和接口。
 
-工具栏与文件夹/邮件状态的单图、条带与预览可由脚本重新生成，分别写入 `target/asset-exports/toolbar/`、`target/asset-exports/folders/`，不参与源码管理；主 PNG、设计原稿与参照保留在 `assets/`。
+## 快速开始
 
-根目录是虚拟 Cargo workspace，统一版本、依赖和 lint。`app/` 拥有平台实现和入口，`crates/` 拥有共享业务与接口。`mail_core` 通过私有 `cfg` 选择器依赖对应平台的服务包，不依赖 UI 或应用入口；平台服务也不依赖邮件业务。维护边界和修改入口见 [代码结构说明](analysis/ARCHITECTURE.md)。macOS/Linux 目前只有预留目录和明确的未实现入口，没有原生 UI、凭据存储或存储锁实现，也未完成跨平台验证。
+### 构建环境
 
-这是可运行的 Rust Windows 邮件客户端及部分兼容接口，没有完成原 `msoe.dll` 全部函数及行为的等价还原。旧 COM/BMAPI、新闻组、地址簿、账户迁移等边界见 [实现说明](analysis/IMPLEMENTATION.md)。
+- Windows 10 1703 或更新版本，或 Windows 11；x64。
+- Rust 1.88 或更新版本，使用 `x86_64-pc-windows-msvc` 工具链。
+- Visual Studio Build Tools 的 C++ 构建工具及 Windows SDK，包含 `rc.exe`。
 
-## 构建和启动
-
-当前需要 Windows 10 1703+ / Windows 11 x64、Rust 1.88+、MSVC / Windows SDK（含资源编译器 rc.exe）。
+在项目根目录执行：
 
 ```powershell
-Set-Location C:\Users\HallM\Desktop\windows-mail
-cargo build --release --locked --offline
+cargo build --release --locked
 .\target\release\WinMail.exe
 ```
 
-也可以直接通过 Cargo 运行：
+首次构建需要下载 Cargo 依赖。依赖已缓存后，可添加 `--offline` 离线构建。
+
+开发时直接运行：
 
 ```powershell
 cargo run -p mail_windows --bin WinMail
-cargo run -p mail_cli --bin winmail-rust -- --help
 ```
 
-默认构建成员是 Windows 入口和 CLI 入口，普通启动直接调用 Rust UI。兼容 DLL 是独立的可选产物，执行 `cargo build -p mail_windows_compat --release --locked --offline` 构建。输出路径仍为：
+构建产物：
 
-- `target\release\WinMail.exe`：Windows GUI，静态链接 Rust 邮件功能，单独复制此 EXE 可运行。
-- `target\release\winmail-rust.exe`：命令行入口。
-- `target\release\msoe.dll`：由 `app/windows/compat` 的 `mail_windows_compat` 生成，提供已实现的启动与部分 Simple MAPI 导出；普通启动无需加载它。
+| 文件 | 用途 |
+| --- | --- |
+| `target/release/WinMail.exe` | Windows 图形客户端 |
+| `target/release/winmail-rust.exe` | 命令行工具 |
+| `target/release/msoe.dll` | 单独构建的可选旧接口兼容库 |
 
-Windows 实现使用系统 API、Schannel TLS 和 DPAPI。支持多个账户，左侧按账户显示服务器实际文件夹、层级和特殊用途目录；Local Folders 保存本地导入邮件和删除账户配置后保留的邮件。**Tools → Accounts...** 提供账户列表、添加、属性、删除和默认账户；属性窗口分组配置地址、凭据、服务器、端口和加密。使用 **Send/Receive** 接收当前账户，写信窗口通过 **From** 选择发件账户，再使用 **Send** 发信。切换主窗口账户不会改变已打开写信窗口的发件人。
+图标和清单嵌入 EXE，无需随程序复制 `assets`。正常 GUI 启动直接调用 Rust 界面。默认 HTML 阅读后端使用系统 MSHTML，以获得最佳性能；显式使用 WebView2 时需要对应运行环境。
 
-经典界面重建了菜单、蓝色工具栏、文件夹树、邮件报告列表、可调整预览区与独立写信窗口。支持 Per Monitor V2 High DPI：缩放变化时重建字体、控件布局与图标。主窗口/写信工具栏、文件夹树与邮件列表使用嵌入的高清透明 PNG 图集，按 DPI 从 128×128 源图缩放；程序图标使用最高 256×256 的原版 ICO。资产按用途集中存放，见 [资产说明](assets/README.md)。搜索框位于白色菜单行右侧，已读筛选位于下方蓝色工具栏右侧；搜索框采用 Win7 风格的白色圆角边框、放大镜与清除按钮。预览 From / To / Subject 同行显示，仅标签加粗，长内容以省略号收尾。支持主题/发件人搜索、已读过滤和列排序；打印、通讯录、日历、拼写检查与富文本编辑尚未实现。详见 [界面还原记录](analysis/UI.md)。
+## 使用界面
 
-HTML 阅读在 Windows 默认使用 MSHTML／Trident，保留可显式选择的 WebView2 后端；共享 `HtmlRenderer` 接口已预留 macOS WKWebView 与 Linux WebKitGTK 适配目录。MSHTML 不需要 Edge Runtime，初始化失败时显示纯文本回退。CID 内嵌图片默认显示，外部图片默认阻止，可在当前邮件点击 Show pictures；切换邮件后重新阻止。邮件脚本与活动内容始终禁用。原版证据、接口和兼容范围见 [HTML 说明](analysis/HTML.md)。
+### 添加账户
 
-支持密码认证与 Microsoft、Google、自定义 OAuth 2.0，通过系统浏览器登录、PKCE 回环回调和 XOAUTH2 连接 IMAP/POP3/SMTP。账户属性中的 Authentication → OAuth settings... 配置 Client ID；需要自己的桌面应用注册，详见 [OAuth 配置](analysis/OAUTH.md)。令牌自动刷新，并先保存再开始邮件操作。对外连接要求 TLS/STARTTLS，Plain 仅用于回环测试；密码、OAuth 令牌与可选客户端凭据由当前 Windows 用户的 DPAPI 加密保存。
+打开 **Tools → Accounts... → Add...**，进入账户新建向导：
 
-```powershell
-.\target\release\WinMail.exe 'mailto:someone@example.com?subject=Hello'
-.\target\release\WinMail.exe '/mailurl:mailto:someone@example.com?subject=Hello'
-.\target\release\WinMail.exe '/eml:C:\mail folder\sample.eml'
-```
+1. 选择服务商：iCloud、Gmail / Google Workspace、Outlook.com / Hotmail、Yahoo、QQ，或其他邮箱。
+2. 填写邮箱地址和可选账户名称。
+3. 审核预填的服务器、端口和加密方式，填写登录信息；点击 **OK** 保存。
 
-支持含空格、中文和引号的参数，以及 `/mailurl:`、`/eml:`、`/mail`、`/mailonly`、`/outmail`。同一数据目录的第二个进程会把命令转发给现有窗口。
+预设使用 IMAP，并允许在最后一步修改配置。其他邮箱可手动填写服务器，也可选择 POP3。在向导最后一步或已有账户的属性中，点击 **Test connection**，可在后台测试收件与 SMTP 服务器的连接、加密协商和登录，分别显示结果。测试不会发送或下载邮件，也不会保存表单；确认配置后点击 **OK** 保存。OAuth 账户需先完成授权。
 
-## 数据和命令行
+| 服务商 | 登录提示 |
+| --- | --- |
+| iCloud | 使用 Apple 应用专用密码 |
+| Gmail / Google Workspace | 使用可用的应用密码，或在属性中配置 OAuth；组织策略可能限制访问 |
+| Outlook.com / Hotmail | 启用 IMAP，使用 OAuth 2.0 |
+| Yahoo | 使用 Yahoo 应用密码 |
+| QQ | 启用 IMAP/SMTP，使用授权码 |
 
-默认数据目录是 `%LOCALAPPDATA%\WinMailRust`，保存原始 EML、JSON 索引、草稿字段、附件副本和多账户配置。旧单账户索引在打开时迁移，原始 EML 保留；账户具有稳定 ID，修改服务器或显示名称不改变邮件归属。邮件正文与草稿字段未加密。新客户端不读取或改变原 Windows Mail 的数据库、账户或邮件。
+Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令牌刷新，但需要自行注册应用并配置 Client ID。项目没有内置可直接使用的服务商应用 ID。参见 [OAuth 配置](analysis/OAUTH.md) 和 [服务商预设与官方资料](app/windows/src/ui/account_window/providers.md)。
+
+### 收发与整理邮件
+
+- 启动后自动在后台同步已配置的账户，最多同时同步 3 个不同账户；**Send/Receive** 手动同步当前账户。同一账户不会重复启动同步。底部状态栏显示同步任务数量、当前账户、文件夹进度、下载邮件数和数据量。
+- 工具栏的 **Stop sync** 或 **Tools → Stop synchronization** 停止正在运行和排队的同步。连接建立、域名解析或 OAuth 刷新期间，停止可能需要等待该步骤返回；已建立的邮件连接会关闭以打断等待。
+- IMAP 和 POP3 每封邮件完整下载后，立即通过原子写入保存到数据目录的 `sync-checkpoints`。停止、断网或重启后，再次同步会核对服务器标识并复用这些内容，成功提交邮件目录后移除对应检查点。邮件列表仍在批次提交后更新，未下载完整的一封邮件会重新下载；目前不支持单封邮件的字节级续传。
+- **Create Mail** 新建邮件，写信窗口的 **From** 选择发件账户。
+- 双击邮件或按 Enter 打开独立阅读窗口；支持回复、回复全部和转发。
+- 搜索框搜索主题和发件人；筛选器区分已读与未读，点击列表列头排序。
+- 列表发件人优先显示昵称，悬停查看完整地址；收件时间按电脑本地时区和 Windows 区域格式显示，今天显示时间，昨天显示 Yesterday 加时间，今年的其他日期省略年份，往年保留年份。悬停可查看完整日期。未读邮件使用闭合信封，发件人和主题加粗；已读邮件使用打开信封。搜索和日期排序仍使用原始邮件信息。
+- 支持草稿、附件、EML 导入与导出，以及删除、恢复、永久删除和清空垃圾箱。
+- 拖动侧栏与右侧内容之间的分隔条调整宽度；预览区也支持调整大小。
+
+切换主窗口账户不会改变已经打开的写信窗口的发件账户。
+
+**Local Folders** 是独立于邮箱账户的本地存储分组，用于导入邮件以及保留移除账户后的邮件和草稿。账户邮件也会缓存到电脑，本地分组与账户分组的区别是邮件归属。
+
+### 设置与关于
+
+打开 **Tools → Settings...**：
+
+| 分类 | 当前功能 |
+| --- | --- |
+| Appearance | 显示或隐藏文件夹侧栏、邮件预览窗格；保存后立即应用，下次启动恢复 |
+| Accounts | 打开账户管理窗口 |
+| Storage | 查看本地数据目录和 Local Folders 说明 |
+| About | 查看版本、功能介绍和项目说明 |
+
+设置窗口目前没有主题切换、自动收取间隔等选项。布局偏好保存在数据目录的 `desktop-settings.json`。
+
+### HTML 阅读
+
+默认使用 MSHTML / Trident，另有 WebView2 后端。支持 HTML 正文、静态 CSS、表格和 CID 内嵌图片；初始化失败时回退为纯文本。
+
+远程图片默认阻止，可通过当前邮件的 **Show pictures** 加载；切换邮件后重新阻止。邮件脚本与活动内容禁用。实现边界见 [HTML 阅读说明](analysis/HTML.md)。
+
+## 数据与命令行
+
+默认数据目录为 `%LOCALAPPDATA%\WinMailRust`。可在启动前指定其他目录：
 
 ```powershell
 $env:WINMAIL_DATA_DIR = 'D:\MailData\Rust'
+.\target\release\WinMail.exe
+```
+
+目录中保存原始 EML、邮件索引、草稿、附件副本、多账户配置和界面偏好。密码与 OAuth 凭据由当前 Windows 用户的 DPAPI 加密；邮件正文和草稿内容未加密。备份应包含整个数据目录，DPAPI 凭据不能假定可直接跨用户或跨电脑使用。
+
+同一数据目录使用进程锁。GUI 打开时，对该目录执行 CLI 或 MAPI 存储操作可能报告正在使用。正常 GUI 再次启动会向现有实例转发命令。
+
+CLI 示例：
+
+```powershell
+cargo run -p mail_cli -- --help
 .\target\release\winmail-rust.exe --mail-import 'D:\ExportedMail'
 .\target\release\winmail-rust.exe --mail-list
 .\target\release\winmail-rust.exe --mail-show MESSAGE_ID
 .\target\release\winmail-rust.exe --mail-export MESSAGE_ID 'D:\sample.eml'
 .\target\release\winmail-rust.exe --mail-receive
 .\target\release\winmail-rust.exe --mail-draft 'D:\draft.json'
-# 此命令向配置好的 SMTP 服务器实际提交邮件：
+```
+
+`MESSAGE_ID` 使用列表输出的邮件 ID。导入支持递归读取 `.eml` / `.nws`，不支持旧 ESE / DBX 数据库。
+
+草稿 JSON 示例：
+
+```json
+{
+  "to": "recipient@example.com",
+  "cc": "",
+  "bcc": "",
+  "subject": "Hello",
+  "body": "Message text",
+  "attachments": []
+}
+```
+
+实际发送邮件：
+
+```powershell
 .\target\release\winmail-rust.exe --mail-send 'D:\draft.json'
 ```
 
-`MESSAGE_ID` 是 `--mail-list` 输出的 64 位十六进制 ID。导入支持递归 `.eml` / `.nws`，不支持旧 ESE/DBX 数据库。草稿无需账户或完整收件人即可保存，发送前再验证。密送地址保存于草稿和 SMTP 信封，不写入发送 MIME 的 Bcc 头。
-
-`D:\draft.json` 是自行创建的草稿文件，字段为 `to`、`cc`、`bcc`、`subject`、`body` 字符串与 `attachments` 文件路径数组。
-
-单封最大 50 MiB，每批最多下载 200 封 / 100 MiB；GUI 和 CLI 在有进展、没有警告时自动继续最多 50 批，剩余邮件可再次 Send/Receive。IMAP 同步服务器所有可选择文件夹、层级与已读、旗标、回复等标记；离线修改已读和旗标会持久化，下一次同步提交。列表右键可移动到服务器文件夹。正文使用 BODY.PEEK[]，未读状态不会因下载改变。失败文件夹快照保留缓存；远端移除、UIDVALIDITY 或连接变化保留原始邮件到 Recovered。详见 [IMAP 同步说明](analysis/IMAP.md)。
-
-删除先移入服务器 Deleted Items，支持恢复、确认后永久删除与清空垃圾箱。支持 MOVE 的服务器可直接移动；无 MOVE 时 COPY 后标记来源删除。没有 UIDPLUS 时保留“等待服务器清理”状态，实际确认 UID 消失后才移除缓存，始终避免全局 EXPUNGE 清除其他客户端的邮件。新 UID 无法可靠确认时保留正文并阻止重复远程操作。POP3 与本地导入邮件仅删除本地副本，不发送 POP3 DELE。失败发送保留 Outbox，不自动重试；SMTP DATA 获接受后认为提交成功，未实现最终投递确认。
-
-索引使用临时文件替换，存储使用进程锁。损坏索引会报错并保留原文件；落盘但未索引的 EML 会恢复到 Recovered。窗口打开时，访问相同目录的 CLI 存储操作或 MAPI 会报“正在使用”，应先关闭窗口。
-
-## 实现范围
-
-| 功能 | 当前实现 |
-| --- | --- |
-| 原启动参数、策略、OLE、互斥、IPC、错误码和重启 | `app/windows/src/startup` 中的 Rust 实现 |
-| 邮件窗口、阅读、回复/转发、草稿、附件、导入/导出 | Rust 原生 Win32 UI，经典主窗口、独立阅读窗口与写信窗口；双击/Enter 打开、右键操作邮件 |
-| MIME、中文头、文本/HTML 预览、附件 | 保留 HTML 正文；统一 renderer trait，默认 MSHTML 显示表格、静态 CSS 和 CID 图片，失败回退文本 |
-| EML/JSON 存储、重复下载识别、DPAPI 密码 | `mail_core` / `app/windows/platform` |
-| SMTP PLAIN/LOGIN/XOAUTH2、完整 IMAP 文件夹/标记同步、POP3、TLS/STARTTLS | Rust 协议逻辑；Windows Schannel 验证证书 |
-| Simple MAPI 登录、注销、查找、读取、保存、删除、地址解析、发送、释放缓冲区 | `mail_windows_compat` 已实现子集，保留对应原导出序号 |
-| `/ident*` 和 ordinal 22 | Rust 存储/EML 识别，输出格式不同于旧实现 |
-| `/reg`、`/unreg` | 保留注册表命令更新，不强制更改现代 UserChoice |
-| 原 COM 类、Extended MAPI、BMAPI、MAPI 发送/地址簿对话框、Unicode MAPI | 未实现 |
-| Microsoft / Google / 自定义 OAuth | 浏览器登录、PKCE、DPAPI、自动刷新，需注册应用 Client ID |
-| 旧数据库/账户/身份迁移、NNTP、规则、签名、全文搜索 | 未实现 |
-| OCInstall 旧安装维护 | 默认不支持；显式旧 DLL 模式可调用原程序 |
-| wab.dll、wab32.dll、msidcrl30.dll 等其他旧组件 | 未逐项重写；新客户端不加载它们 |
-| macOS/Linux 原生应用 | 仅预留目录与未实现入口 |
-
-`msoe.dll` 不能直接替换系统目录里的完整旧 DLL：未提供所有旧导出和 COM 类，DllGetClassObject 明确返回 CLASS_E_CLASSNOTAVAILABLE。
-
-对照旧核心时，显式设置 `WINMAIL_RUNTIME_DIR` 为原安装目录即可启用外部 DLL。普通 Rust 模式不设置此变量。
+GUI 也可从 `mailto:` 或 EML 文件启动：
 
 ```powershell
-$env:WINMAIL_RUNTIME_DIR = 'C:\Program Files\Windows Mail'
-.\target\release\winmail-rust.exe --probe
-# 恢复普通 Rust 模式：
-Remove-Item Env:\WINMAIL_RUNTIME_DIR
+.\target\release\WinMail.exe 'mailto:someone@example.com?subject=Hello'
+.\target\release\WinMail.exe '/eml:C:\Mail\sample.eml'
 ```
 
-## 验证和分析资料
+更多命令见 [CLI 说明](app/cli/README.md)。同步、删除与恢复的具体行为见 [IMAP 说明](analysis/IMAP.md)。
+
+## 代码结构
+
+```text
+app/
+  cli/                        命令行入口
+  windows/
+    src/ui/                   主窗口、阅读、写信、设置与账户向导
+    src/startup/              参数路由、单实例、系统初始化及旧启动支持
+    platform/                 Windows 系统服务与控件
+      src/icons/
+        mod.rs                图标公共接口、ICO 与图像列表
+        catalog.rs            图标名称与文件映射
+        bitmap.rs             PNG 解码、透明度与 DPI 缩放
+    build_support/            EXE 图标与 manifest 嵌入
+    compat/                   可选 msoe.dll / Simple MAPI 适配
+  macos/                      预留平台入口与适配目录
+  linux/                      预留平台入口与适配目录
+crates/
+  mail_core/                  账户、MIME、存储、协议与 OAuth
+  mail_app/                   应用状态与邮件操作
+  mail_html/                  共享 HTML 渲染接口
+assets/windows/               Windows 图标、清单与设计原稿
+analysis/                     架构、协议、兼容范围及历史分析资料
+```
+
+Cargo workspace 统一版本、依赖和 lint；默认构建 Windows 与 CLI 两个入口。共享业务不依赖应用入口。维护边界见 [架构说明](analysis/ARCHITECTURE.md)。
+
+### 图标管理
+
+程序使用独立的 **128×128 RGBA PNG**，按用途命名：
+
+- `assets/windows/icons/toolbar/`：compose、reply、forward、attach 等工具栏图标。
+- `assets/windows/icons/folders/`：account、inbox、drafts、trash 等树图标。
+- `assets/windows/icons/message-status/`：read、unread。
+- `assets/windows/icons/app.ico`：多尺寸程序图标。
+
+界面通过 `ToolbarIcon`、`TreeIcon`、`FolderIcon` 使用图标。统一清单生成 Windows 图像列表顺序，界面无需维护大图集坐标。
+
+替换图标：修改对应 PNG 后重新构建。新增图标：添加 PNG，在 `catalog.rs` 登记名称，再在界面选择对应枚举。旧图集保留于 `sources/legacy-runtime-atlases/`，仅作设计记录与测试参照，不嵌入正式程序。详见 [Windows 资源说明](assets/windows/README.md)。
+
+## 兼容范围与未实现功能
+
+`app/windows/compat` 提供旧 Windows Mail ABI 和部分 Simple MAPI 适配。按需构建：
 
 ```powershell
-cargo test --workspace --locked --offline
-cargo clippy --workspace --all-targets --locked --offline -- -D warnings
+cargo build -p mail_windows_compat --release --locked
+```
+
+该 DLL 只提供已实现的导出子集，不能作为完整系统 `msoe.dll` 的替代品。普通客户端不需要它。`WINMAIL_RUNTIME_DIR` 用于显式选择外部旧 DLL，日常使用无需设置。
+
+当前未实现：
+
+- 完整旧 COM、Extended MAPI、BMAPI 和旧数据库／身份迁移。
+- 打印、通讯录、日历、拼写检查与富文本写信。
+- 邮件规则、签名、全文搜索和 NNTP 新闻组。
+- 可用的 macOS / Linux 原生客户端。
+
+项目提供服务商预设和协议实现，但不代表已对所有真实服务商账户完成验证。完整边界见 [实现说明](analysis/IMPLEMENTATION.md) 和 [兼容模块说明](app/windows/compat/README.md)。
+
+## 开发验证
+
+在项目根目录执行：
+
+```powershell
 cargo fmt --all -- --check
-.\target\release\winmail-rust.exe --diagnose
-.\target\release\winmail-rust.exe --probe
+cargo check -p mail_windows --tests
+cargo test -p mail_windows --lib -- --test-threads=1
+cargo test -p mail_windows_platform --features ui -- --test-threads=1
+cargo test --workspace --locked
+cargo clippy --workspace --all-targets --locked -- -D warnings
 ```
 
-测试覆盖 MIME/中文/附件、存储恢复与锁、DPAPI、本地 SMTP/IMAP/POP3、STARTTLS 要求、TLS 失败、原生 DLL 调用、MAPI 内存释放和真实窗口的导入/回复/IPC/草稿恢复。CLI 进程测试在 `app/cli/tests/native_behavior.rs`，Windows 窗口集成测试在 `app/windows/tests/windows_behavior.rs`，MAPI 合同测试在 `app/windows/compat/tests/mapi_behavior.rs`，共享功能的测试随各 crate 保留。测试采用隔离目录，不读取用户邮件或向外部服务器发信。未验证真实服务商账户（包括 OAuth）、完整 TLS 证书链场景、旧客户端全行为兼容或 macOS/Linux 构建。
+上述命令是开发检查入口，不表示每次修改都已执行全部检查。Windows 原生窗口测试需要可用的 Windows 桌面环境；外部组件相关测试还取决于运行环境。
 
-- [启动器反汇编记录](analysis/RECONSTRUCTION.md)
-- [代码结构与维护入口](analysis/ARCHITECTURE.md)
-- [邮件实现与 ABI 边界](analysis/IMPLEMENTATION.md)
-- [本机输入文件哈希](analysis/inputs.json)
-- [验证记录](analysis/validation.txt)
+测试覆盖 MIME、存储、协议、凭据保护、窗口交互、账户操作、向导、设置和图标缩放。GUI 集成测试在 `app/windows/tests/`，CLI 测试在 `app/cli/tests/`，兼容接口测试在 `app/windows/compat/tests/`。
 
-`scripts\Analyze.ps1` 可重新生成静态资料；`analysis\msoe.disasm.txt` 保存旧核心完整 LLVM 反汇编。这些资料不是恢复出的完整源码。
+进一步阅读：
+
+- [界面实现记录](analysis/UI.md)
+- [启动层说明](app/windows/src/startup/README.md)
+- [OAuth 配置](analysis/OAUTH.md)
+- [IMAP 同步与删除行为](analysis/IMAP.md)
+- [旧程序分析记录](analysis/RECONSTRUCTION.md)

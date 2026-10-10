@@ -17,12 +17,18 @@ pub struct Session {
 }
 impl Session {
     fn connect(host: &str, port: u16, mode: Security) -> Result<Self> {
+        if let Some(control) = control::current() {
+            control.check()?;
+        }
         if host.is_empty() || host.contains(['\r', '\n', '\0']) {
             return Err("Invalid server name".into());
         }
         let mut last = String::new();
         let mut connected = None;
         for address in (host, port).to_socket_addrs().map_err(|e| e.to_string())? {
+            if let Some(control) = control::current() {
+                control.check()?;
+            }
             if mode == Security::Plain && !address.ip().is_loopback() {
                 return Err("Unencrypted mail transport is allowed only on loopback; choose TLS or STARTTLS".into());
             }
@@ -35,6 +41,7 @@ impl Session {
             }
         }
         let stream = connected.ok_or_else(|| format!("Connect failed: {last}"))?;
+        control::register(&stream)?;
         stream
             .set_read_timeout(Some(Duration::from_secs(30)))
             .map_err(|e| e.to_string())?;
@@ -186,24 +193,7 @@ pub fn smtp_send(account: &Account, draft: &Draft, raw: &[u8]) -> Result<()> {
     }
     let sender = crate::message::addresses(&account.email)?;
     let recipients = draft.recipients()?;
-    let mut s = Session::connect(&account.smtp_host, account.smtp_port, account.smtp_security)?;
-    s.expect(&[220])?;
-    s.send("EHLO winmail-rust.local")?;
-    let mut capabilities = s.expect(&[250])?;
-    if account.smtp_security == Security::StartTls {
-        if !capabilities
-            .iter()
-            .any(|l| l.to_uppercase().contains("STARTTLS"))
-        {
-            return Err("Server does not advertise STARTTLS".into());
-        }
-        s.send("STARTTLS")?;
-        s.expect(&[220])?;
-        s.upgrade(&account.smtp_host)?;
-        s.send("EHLO winmail-rust.local")?;
-        capabilities = s.expect(&[250])?;
-    }
-    auth::smtp(&mut s, account, &capabilities)?;
+    let mut s = smtp_connect(account)?;
     s.send(&format!("MAIL FROM:<{}>", sender[0]))?;
     s.expect(&[250])?;
     for recipient in recipients {
@@ -320,9 +310,33 @@ impl ImapLocation {
 }
 const MAX_BATCH: usize = 100 * 1024 * 1024;
 pub fn receive(account: &Account, known: &[String]) -> Result<Vec<Download>> {
+    receive_with_progress(account, known, &mut |_| {})
+}
+pub fn receive_with_progress(
+    account: &Account,
+    known: &[String],
+    progress: &mut dyn FnMut(String),
+) -> Result<Vec<Download>> {
+    receive_controlled(account, known, progress, &SyncControl::default())
+}
+pub fn receive_controlled(
+    account: &Account,
+    known: &[String],
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
+) -> Result<Vec<Download>> {
+    control.run(|| receive_inner(account, known, progress, control))
+}
+fn receive_inner(
+    account: &Account,
+    known: &[String],
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
+) -> Result<Vec<Download>> {
+    control.check()?;
     account.validate()?;
     match account.incoming {
-        Incoming::Pop3 => pop3(account, known),
+        Incoming::Pop3 => pop3(account, known, progress, control),
         Incoming::Imap => imap(account, known),
     }
 }
@@ -334,7 +348,13 @@ fn pop_ok(s: &mut Session) -> Result<String> {
         Err("POP3 server rejected operation".into())
     }
 }
-fn pop3(account: &Account, known: &[String]) -> Result<Vec<Download>> {
+fn pop3(
+    account: &Account,
+    known: &[String],
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
+) -> Result<Vec<Download>> {
+    progress("Connecting and signing in…".into());
     let mut s = Session::connect(
         &account.incoming_host,
         account.incoming_port,
@@ -347,12 +367,14 @@ fn pop3(account: &Account, known: &[String]) -> Result<Vec<Download>> {
         s.upgrade(&account.incoming_host)?;
     }
     auth::pop3(&mut s, account)?;
+    progress("Checking POP3 message list…".into());
     s.send("UIDL")?;
     pop_ok(&mut s)?;
     let listing = s.dot_block()?;
     let mut downloads = Vec::new();
     let mut bytes = 0;
     for line in String::from_utf8_lossy(&listing).lines() {
+        control.check()?;
         let mut parts = line.split_whitespace();
         let number = parts
             .next()
@@ -364,20 +386,32 @@ fn pop3(account: &Account, known: &[String]) -> Result<Vec<Download>> {
         if known.contains(&key) {
             continue;
         }
-        s.send(&format!("RETR {number}"))?;
-        pop_ok(&mut s)?;
-        let raw = s.dot_block()?;
+        let raw = if let Some(raw) = control.load(&key)? {
+            raw
+        } else {
+            s.send(&format!("RETR {number}"))?;
+            pop_ok(&mut s)?;
+            let raw = s.dot_block()?;
+            control.save(&key, &raw)?;
+            raw
+        };
         if bytes + raw.len() > MAX_BATCH {
             break;
         }
         bytes += raw.len();
         downloads.push(Download { key, raw });
+        progress(format!(
+            "Downloaded {} new messages · {} KB",
+            downloads.len(),
+            bytes / 1024
+        ));
         if downloads.len() >= 200 || bytes >= MAX_BATCH {
             break;
         }
     }
     let _ = s.send("QUIT");
     let _ = pop_ok(&mut s);
+    control.check()?;
     Ok(downloads)
 }
 fn quoted(text: &str) -> Result<String> {
@@ -601,11 +635,83 @@ fn imap_token(text: &str) -> Result<(String, &str)> {
     Ok((text[..end].into(), &text[end..]))
 }
 mod auth;
+mod control;
+pub use control::SyncControl;
 mod changes;
+#[cfg(all(test, windows))]
+mod connection_tests;
 pub use changes::{imap_move, imap_permanently_delete, imap_restore, imap_trash};
 
 mod sync;
 pub use sync::{
     ImapDownload, ImapFlags, ImapFolder, ImapFolderRole, ImapMailboxSnapshot, ImapSyncReport,
-    ImapSyncRequest, PendingFlagChange, sync_imap,
+    ImapSyncRequest, PendingFlagChange, sync_imap, sync_imap_controlled, sync_imap_with_progress,
 };
+
+fn smtp_connect(account: &Account) -> Result<Session> {
+    let mut s = Session::connect(&account.smtp_host, account.smtp_port, account.smtp_security)?;
+    s.expect(&[220])?;
+    s.send("EHLO winmail-rust.local")?;
+    let mut capabilities = s.expect(&[250])?;
+    if account.smtp_security == Security::StartTls {
+        if !capabilities
+            .iter()
+            .any(|l| l.to_uppercase().contains("STARTTLS"))
+        {
+            return Err("Server does not advertise STARTTLS".into());
+        }
+        s.send("STARTTLS")?;
+        s.expect(&[220])?;
+        s.upgrade(&account.smtp_host)?;
+        s.send("EHLO winmail-rust.local")?;
+        capabilities = s.expect(&[250])?;
+    }
+    auth::smtp(&mut s, account, &capabilities)?;
+    Ok(s)
+}
+
+/// Connect, negotiate encryption and authenticate without accessing mail or sending it.
+#[derive(Debug)]
+pub struct ConnectionTest {
+    pub incoming: Result<()>,
+    pub outgoing: Result<()>,
+}
+
+pub fn test_connection(account: &Account) -> ConnectionTest {
+    if let Err(error) = account.validate() {
+        return ConnectionTest {
+            incoming: Err(error.clone()),
+            outgoing: Err(error),
+        };
+    }
+    let incoming = (|| {
+        match account.incoming {
+            Incoming::Imap => {
+                let mut session = imap_connect(account)?;
+                let _ = session.command("LOGOUT");
+            }
+            Incoming::Pop3 => {
+                let mut session = Session::connect(
+                    &account.incoming_host,
+                    account.incoming_port,
+                    account.incoming_security,
+                )?;
+                pop_ok(&mut session)?;
+                if account.incoming_security == Security::StartTls {
+                    session.send("STLS")?;
+                    pop_ok(&mut session)?;
+                    session.upgrade(&account.incoming_host)?;
+                }
+                auth::pop3(&mut session, account)?;
+                let _ = session.send("QUIT");
+            }
+        }
+        Ok(())
+    })();
+    let outgoing = (|| {
+        let mut session = smtp_connect(account)?;
+        let _ = session.send("QUIT");
+        Ok(())
+    })();
+    ConnectionTest { incoming, outgoing }
+}

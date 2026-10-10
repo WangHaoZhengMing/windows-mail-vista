@@ -9,6 +9,7 @@ mod folder_tree;
 mod layout;
 mod main_window;
 mod menus;
+mod message_list;
 mod reader_window;
 mod toolbar_layout;
 

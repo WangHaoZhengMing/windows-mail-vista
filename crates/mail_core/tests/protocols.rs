@@ -46,6 +46,68 @@ fn reply(s: &mut BufReader<TcpStream>, text: &str) {
 }
 
 #[test]
+fn pop3_completed_download_survives_cancel_and_restart_without_retr_again() {
+    let (listener, port) = server();
+    let worker = thread::spawn(move || {
+        for session in 0..2 {
+            let (stream, _) = listener.accept().unwrap();
+            stream
+                .set_read_timeout(Some(std::time::Duration::from_secs(3)))
+                .unwrap();
+            let mut s = BufReader::new(stream);
+            reply(&mut s, "+OK fixture\r\n");
+            assert_eq!(line(&mut s), "USER user");
+            reply(&mut s, "+OK\r\n");
+            assert_eq!(line(&mut s), "PASS test-pass");
+            reply(&mut s, "+OK\r\n");
+            assert_eq!(line(&mut s), "UIDL");
+            reply(&mut s, "+OK\r\n1 first\r\n2 second\r\n.\r\n");
+            assert_eq!(line(&mut s), if session == 0 { "RETR 1" } else { "RETR 2" });
+            reply(
+                &mut s,
+                "+OK\r\nFrom: a@example.test\r\nSubject: cached\r\n\r\nbody\r\n.\r\n",
+            );
+            if session == 0 {
+                assert_eq!(line(&mut s), "");
+            } else {
+                assert_eq!(line(&mut s), "QUIT");
+                reply(&mut s, "+OK\r\n");
+            }
+        }
+    });
+    let root = std::env::temp_dir().join(format!(
+        "winmail-pop-checkpoint-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos()
+    ));
+    let account = account(port, Incoming::Pop3);
+    let control = network::SyncControl::new(root.clone());
+    let cancel = control.clone();
+    assert!(
+        network::receive_controlled(
+            &account,
+            &[],
+            &mut |message| {
+                if message.starts_with("Downloaded 1 ") {
+                    cancel.cancel();
+                }
+            },
+            &control
+        )
+        .is_err()
+    );
+    assert_eq!(std::fs::read_dir(&root).unwrap().count(), 1);
+    let resumed = network::SyncControl::new(root.clone());
+    let downloads = network::receive_controlled(&account, &[], &mut |_| {}, &resumed).unwrap();
+    assert_eq!(downloads.len(), 2);
+    worker.join().unwrap();
+    std::fs::remove_dir_all(root).unwrap();
+}
+
+#[test]
 fn smtp_auth_multiline_bcc_and_dot_transparency() {
     let (listener, port) = server();
     let worker = thread::spawn(move || {

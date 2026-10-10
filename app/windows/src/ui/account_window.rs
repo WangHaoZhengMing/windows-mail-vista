@@ -82,6 +82,7 @@ mod properties;
 pub(super) mod settings;
 #[cfg(test)]
 mod tests;
+mod wizard;
 
 use form::{Field, FormInput, ValidationError};
 pub(crate) use manager::open;

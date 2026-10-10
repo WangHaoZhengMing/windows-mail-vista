@@ -150,7 +150,34 @@ pub struct ImapSyncReport {
 }
 
 pub fn sync_imap(account: &Account, request: &ImapSyncRequest) -> Result<ImapSyncReport> {
+    sync_imap_with_progress(account, request, &mut |_| {})
+}
+
+pub fn sync_imap_with_progress(
+    account: &Account,
+    request: &ImapSyncRequest,
+    progress: &mut dyn FnMut(String),
+) -> Result<ImapSyncReport> {
+    sync_imap_controlled(account, request, progress, &SyncControl::default())
+}
+pub fn sync_imap_controlled(
+    account: &Account,
+    request: &ImapSyncRequest,
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
+) -> Result<ImapSyncReport> {
+    control.run(|| sync_imap_inner(account, request, progress, control))
+}
+fn sync_imap_inner(
+    account: &Account,
+    request: &ImapSyncRequest,
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
+) -> Result<ImapSyncReport> {
+    control.check()?;
+    progress("Connecting and signing in…".into());
     let mut session = imap_connect(account)?;
+    progress("Discovering server folders…".into());
     let capabilities = session
         .command("CAPABILITY")?
         .lines
@@ -160,6 +187,7 @@ pub fn sync_imap(account: &Account, request: &ImapSyncRequest) -> Result<ImapSyn
         .split_whitespace()
         .any(|value| value == "SPECIAL-USE")
     {
+        control.check()?;
         match session.command("LIST \"\" \"*\" RETURN (SPECIAL-USE)") {
             Ok(reply) => reply,
             Err(ImapError::Rejected) => session.command("LIST \"\" \"*\"")?,
@@ -192,12 +220,24 @@ pub fn sync_imap(account: &Account, request: &ImapSyncRequest) -> Result<ImapSyn
         .chain(request.known_keys.iter().cloned())
         .collect();
     let mut bytes = 0;
+    let total = report
+        .folders
+        .iter()
+        .filter(|folder| folder.selectable)
+        .count();
+    let mut completed = 0;
     for folder in report
         .folders
         .clone()
         .into_iter()
         .filter(|folder| folder.selectable)
     {
+        progress(format!(
+            "Folder {}/{}: {} · checking messages…",
+            completed + 1,
+            total,
+            folder.display_name
+        ));
         let result = sync_mailbox(
             &mut session,
             &connection,
@@ -206,7 +246,14 @@ pub fn sync_imap(account: &Account, request: &ImapSyncRequest) -> Result<ImapSyn
             &known,
             &mut bytes,
             &mut report,
+            progress,
+            control,
         );
+        completed += 1;
+        progress(format!(
+            "Checked {completed}/{total} folders · downloaded {} messages",
+            report.downloads.len()
+        ));
         if let Err(error) = result {
             let transport_failed = !matches!(&error, ImapError::Rejected);
             report
@@ -219,6 +266,7 @@ pub fn sync_imap(account: &Account, request: &ImapSyncRequest) -> Result<ImapSyn
         }
     }
     let _ = session.session.send("R9999 LOGOUT");
+    control.check()?;
     Ok(report)
 }
 
@@ -230,6 +278,8 @@ fn sync_mailbox(
     known: &BTreeSet<String>,
     bytes: &mut usize,
     report: &mut ImapSyncReport,
+    progress: &mut dyn FnMut(String),
+    control: &SyncControl,
 ) -> std::result::Result<(), ImapError> {
     let selected = session.command(&format!("SELECT {}", quoted(&folder.mailbox)?))?;
     let validity = uid_validity(&selected)?;
@@ -283,6 +333,7 @@ fn sync_mailbox(
     }
     let mut messages = BTreeMap::new();
     for batch in uids.chunks(256) {
+        control.check()?;
         let set = batch
             .iter()
             .map(u32::to_string)
@@ -313,7 +364,13 @@ fn sync_mailbox(
         uid_next: response_number(&selected, "UIDNEXT"),
         messages: messages.clone(),
     });
+    progress(format!(
+        "{}: {} messages · downloading new mail…",
+        folder.display_name,
+        messages.len()
+    ));
     for (&uid, flags) in messages.iter().rev() {
+        control.check()?;
         let location = ImapLocation {
             connection: connection.into(),
             mailbox: folder.mailbox.clone(),
@@ -330,24 +387,31 @@ fn sync_mailbox(
             report.has_more = true;
             continue;
         }
-        let fetched = match session.command(&format!("UID FETCH {uid} (UID BODY.PEEK[])")) {
-            Ok(reply) => reply,
-            Err(ImapError::Rejected) => {
+        let key = location.remote_key();
+        let raw = if let Some(raw) = control.load(&key)? {
+            raw
+        } else {
+            let fetched = match session.command(&format!("UID FETCH {uid} (UID BODY.PEEK[])")) {
+                Ok(reply) => reply,
+                Err(ImapError::Rejected) => {
+                    report.warnings.push(format!(
+                        "{}: body download rejected for UID {uid}",
+                        folder.display_name
+                    ));
+                    continue;
+                }
+                Err(error) => return Err(error),
+            };
+            let Some(raw) = super::changes::fetch_uid_body(&fetched, uid)? else {
+                // It may have been expunged after SEARCH. The next complete snapshot reconciles it.
                 report.warnings.push(format!(
-                    "{}: body download rejected for UID {uid}",
+                    "{}: body unavailable for UID {uid}",
                     folder.display_name
                 ));
                 continue;
-            }
-            Err(error) => return Err(error),
-        };
-        let Some(raw) = super::changes::fetch_uid_body(&fetched, uid)? else {
-            // It may have been expunged after SEARCH. The next complete snapshot reconciles it.
-            report.warnings.push(format!(
-                "{}: body unavailable for UID {uid}",
-                folder.display_name
-            ));
-            continue;
+            };
+            control.save(&key, &raw)?;
+            raw
         };
         if *bytes + raw.len() > MAX_BATCH {
             report.has_more = true;
@@ -359,6 +423,12 @@ fn sync_mailbox(
             raw,
             flags: flags.clone(),
         });
+        progress(format!(
+            "{}: downloaded {} new messages · {} KB",
+            folder.display_name,
+            report.downloads.len(),
+            *bytes / 1024
+        ));
     }
     Ok(())
 }

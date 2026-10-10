@@ -108,6 +108,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                     "&Tools",
                     vec![
                         ("Send/Receive\tCtrl+M", id(Command::Receive), true),
+                        ("Stop synchronization", id(Command::CancelSync), false),
                         ("Accounts...", id(Command::ConfigureAccount), true),
                         ("Settings...", SETTINGS, true),
                     ],

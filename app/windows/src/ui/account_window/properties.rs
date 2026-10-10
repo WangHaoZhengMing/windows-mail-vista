@@ -5,6 +5,9 @@ use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOWTEXT, GetSysColor};
 
 pub(super) const AUTHENTICATION: u16 = 323;
 pub(super) const CONFIGURE_OAUTH: u16 = 324;
+const TEST_CONNECTION: u16 = 325;
+const TEST_TIMER: usize = 326;
+type TestResult = (mail_core::network::ConnectionTest, Account);
 
 pub(super) struct PropertyHost {
     owner: HWND,
@@ -16,6 +19,7 @@ pub(super) struct PropertyHost {
     oauth_updates: Receiver<mail_core::oauth::OAuthAccount>,
     pub(super) state: RefCell<AccountProperties>,
     window_owned: Cell<bool>,
+    connection_test: RefCell<Option<Receiver<TestResult>>>,
 }
 
 pub(super) struct AccountProperties {
@@ -34,6 +38,29 @@ pub(super) struct AccountProperties {
 }
 
 impl AccountProperties {
+    unsafe fn test_busy(&self, window: HWND, busy: bool) {
+        unsafe {
+            for control in self.edits.iter().copied().chain([
+                self.protocol,
+                self.authentication,
+                self.configure_oauth,
+                self.incoming_security,
+                self.smtp_security,
+                GetDlgItem(window, SAVE_ACCOUNT as i32),
+                GetDlgItem(window, TEST_CONNECTION as i32),
+            ]) {
+                EnableWindow(control, i32::from(!busy));
+            }
+            set_window_text(
+                GetDlgItem(window, TEST_CONNECTION as i32),
+                if busy {
+                    "Testing..."
+                } else {
+                    "Test connection"
+                },
+            );
+        }
+    }
     fn new(previous: Option<AccountRecord>) -> Self {
         let oauth_account = previous
             .as_ref()
@@ -239,6 +266,14 @@ impl AccountProperties {
                 IDCANCEL as u16,
                 [690, 514, 96, 30],
             );
+            self.layout.control(
+                window,
+                "BUTTON",
+                "Test connection",
+                WS_TABSTOP,
+                TEST_CONNECTION,
+                [14, 514, 150, 30],
+            );
             self.update_authentication();
             self.layout.update(window, dpi::window_dpi(window));
         }
@@ -401,6 +436,7 @@ pub(super) unsafe fn open(manager: HWND, previous: Option<AccountRecord>) {
             oauth_updates,
             state: RefCell::new(AccountProperties::new(previous)),
             window_owned: Cell::new(false),
+            connection_test: RefCell::new(None),
         });
         let window = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
@@ -438,6 +474,29 @@ pub(super) unsafe fn open(manager: HWND, previous: Option<AccountRecord>) {
         ShowWindow(window, SW_SHOW);
         SetForegroundWindow(window);
         SetFocus(edit);
+    }
+}
+
+pub(super) unsafe fn open_preset(
+    manager: HWND,
+    provider: &super::wizard::Provider,
+    email: &str,
+    name: &str,
+) {
+    unsafe {
+        open(manager, None);
+        let host = GetWindowLongPtrW(manager, GWLP_USERDATA) as *const ManagerHost;
+        if !host.is_null() {
+            let window = (*host).property.get();
+            if IsWindow(window) != 0 {
+                super::wizard::populate(window, provider, email, name);
+                let property = GetWindowLongPtrW(window, GWLP_USERDATA) as *const PropertyHost;
+                if !property.is_null() {
+                    let status = (*property).state.borrow().status;
+                    set_window_text(status, provider.hint);
+                }
+            }
+        }
     }
 }
 
@@ -536,6 +595,70 @@ unsafe fn configure_oauth(window: HWND, host: &PropertyHost) {
     }
 }
 
+unsafe fn test_connection(window: HWND, host: &PropertyHost) {
+    unsafe {
+        if host.connection_test.borrow().is_some() || IsWindow(host.oauth_window.get()) != 0 {
+            return;
+        }
+        let mut account = {
+            let Ok(mut state) = host.state.try_borrow_mut() else {
+                return;
+            };
+            match state.input().account(state.previous.as_ref()) {
+                Ok((_, account)) => account,
+                Err(error) => {
+                    state.failure(error);
+                    return;
+                }
+            }
+        };
+        if SetTimer(window, TEST_TIMER, 200, None) == 0 {
+            manager::error(window, "Could not start connection test.");
+            return;
+        }
+        let (sender, receiver) = mpsc::channel();
+        *host.connection_test.borrow_mut() = Some(receiver);
+        {
+            let state = host.state.borrow();
+            state.test_busy(window, true);
+            set_window_text(
+                state.status,
+                "Testing incoming and outgoing login. No messages will be sent or downloaded.",
+            );
+        }
+        let result = std::thread::Builder::new()
+            .name("mail-connection-test".into())
+            .spawn(move || {
+                let outcome = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                    if matches!(account.auth, Authentication::OAuth2(_)) {
+                        mail_core::oauth::access_token(&mut account)?;
+                    }
+                    Ok::<_, String>(mail_core::network::test_connection(&account))
+                }));
+                let report = match outcome {
+                    Ok(Ok(report)) => report,
+                    error => {
+                        let message = match error {
+                            Ok(Err(error)) => error,
+                            _ => "Connection test failed unexpectedly".into(),
+                        };
+                        mail_core::network::ConnectionTest {
+                            incoming: Err(message.clone()),
+                            outgoing: Err(message),
+                        }
+                    }
+                };
+                let _ = sender.send((report, account));
+            });
+        if let Err(error) = result {
+            host.connection_test.borrow_mut().take();
+            KillTimer(window, TEST_TIMER);
+            host.state.borrow().test_busy(window, false);
+            manager::error(window, &format!("Could not start connection test: {error}"));
+        }
+    }
+}
+
 unsafe extern "system" fn property_proc(window: HWND, message: u32, wp: usize, lp: isize) -> isize {
     unsafe {
         if message == WM_NCCREATE {
@@ -558,6 +681,7 @@ unsafe extern "system" fn property_proc(window: HWND, message: u32, wp: usize, l
                 match (wp & 0xffff) as u16 {
                     SAVE_ACCOUNT => property_save(window),
                     CONFIGURE_OAUTH => configure_oauth(window, &*host),
+                    TEST_CONNECTION => test_connection(window, &*host),
                     AUTHENTICATION if (wp >> 16) as u32 == CBN_SELCHANGE => {
                         if let Ok(state) = (*host).state.try_borrow() {
                             state.update_authentication();
@@ -575,6 +699,47 @@ unsafe extern "system" fn property_proc(window: HWND, message: u32, wp: usize, l
                     if let Ok(mut state) = (*host).state.try_borrow_mut() {
                         state.oauth_account = Some(account);
                         state.update_authentication();
+                    }
+                }
+                0
+            }
+            WM_TIMER if wp == TEST_TIMER => {
+                let result = (*host)
+                    .connection_test
+                    .borrow()
+                    .as_ref()
+                    .and_then(|receiver| receiver.try_recv().ok());
+                if let Some((report, account)) = result {
+                    (*host).connection_test.borrow_mut().take();
+                    KillTimer(window, TEST_TIMER);
+                    if let Ok(mut state) = (*host).state.try_borrow_mut() {
+                        if let Authentication::OAuth2(oauth) = account.auth {
+                            state.oauth_account = Some(oauth);
+                        }
+                        state.test_busy(window, false);
+                        let describe = |result: &Result<()>| match result {
+                            Ok(()) => "Connected and authenticated".to_owned(),
+                            Err(error) => format!("Failed: {error}"),
+                        };
+                        let message = format!(
+                            "Incoming: {}\nOutgoing: {}",
+                            describe(&report.incoming),
+                            describe(&report.outgoing)
+                        );
+                        set_window_text(state.status, &message);
+                        state.error = report.incoming.is_err() || report.outgoing.is_err();
+                        let icon = if state.error {
+                            MB_ICONWARNING
+                        } else {
+                            MB_ICONINFORMATION
+                        };
+                        drop(state);
+                        MessageBoxW(
+                            window,
+                            wide(&message).as_ptr(),
+                            wide("Connection test").as_ptr(),
+                            MB_OK | icon,
+                        );
                     }
                 }
                 0

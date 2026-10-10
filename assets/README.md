@@ -1,13 +1,16 @@
-# 项目资产
+# 项目资源
 
-图片、图标与应用 manifest 集中放在根目录 `assets/`，应用入口和共享 crate 都从这里引用。
+程序图标、图片与 manifest 集中在根目录 `assets/`。
 
-Windows 资产按用途分开，详细文件说明见 [windows/README.md](windows/README.md)：
+Windows 资源分为：
 
-- `windows/icons/`、`windows/manifests/`：程序使用的应用图标、工具栏/文件夹图集与 manifest。
-- `windows/sources/`：设计原稿、提示词、初始生成稿和可重复导出的输入。
+- `windows/icons/toolbar/`：按名称保存的独立工具栏 PNG。
+- `windows/icons/folders/`：独立账户与文件夹 PNG。
+- `windows/icons/message-status/`：独立邮件状态 PNG。
+- `windows/icons/app.ico`、`windows/manifests/`：应用图标与清单。
+- `windows/sources/`：设计原稿、提示词、参照与旧图集。
 - `windows/originals/`：原版位图参照。
 
-`ExportToolbarHiDpi.ps1` 和 `ExportFoldersHiDpi.ps1` 默认把主图集与源稿副本写到 `assets/windows/`，把可重新生成的单图、条带和预览分别写到 `target/asset-exports/toolbar/` 与 `target/asset-exports/folders/`。这些导出副本不参与源码管理。程序使用嵌入的透明 PNG，按 DPI 缩放；资产更新后需要重新构建程序。
+程序嵌入独立 PNG，通过统一清单管理名称，在运行时按 DPI 缩放并创建 Windows 图像列表。修改资源后需要重新构建。
 
-`analysis/ui-resources/` 继续保存反汇编提取的来源证据，不承担当前程序资源目录的职责。
+旧图集导出脚本仅供素材制作，不是当前独立图标的更新入口。`analysis/ui-resources/` 保存历史提取证据。详细维护流程见 [Windows 资源说明](windows/README.md)。

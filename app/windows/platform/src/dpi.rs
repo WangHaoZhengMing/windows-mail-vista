@@ -64,6 +64,17 @@ impl Default for Resources {
     }
 }
 impl Resources {
+    /// Borrow an owned font; the handle remains valid until the next DPI update.
+    pub fn font(&mut self, weight: FontWeight) -> HFONT {
+        if weight == FontWeight::Bold && self.bold_font.is_null() {
+            self.bold_font = unsafe { create_font(self.dpi, FontWeight::Bold) };
+        }
+        if weight == FontWeight::Bold && !self.bold_font.is_null() {
+            self.bold_font
+        } else {
+            self.font
+        }
+    }
     /// Apply this DPI resource set's regular or bold font to one control.
     /// Bold uses the same face and logical size and is allocated only on demand.
     ///
@@ -73,19 +84,7 @@ impl Resources {
     /// destroyed or another font is applied. Allow synchronous message reentry.
     pub unsafe fn apply_font(&mut self, control: HWND, weight: FontWeight) {
         unsafe {
-            let font = match weight {
-                FontWeight::Regular => self.font,
-                FontWeight::Bold => {
-                    if self.bold_font.is_null() {
-                        self.bold_font = create_font(self.dpi, FontWeight::Bold);
-                    }
-                    if self.bold_font.is_null() {
-                        self.font
-                    } else {
-                        self.bold_font
-                    }
-                }
-            };
+            let font = self.font(weight);
             if !font.is_null() {
                 SendMessageW(control, WM_SETFONT, font as usize, 1);
             }
