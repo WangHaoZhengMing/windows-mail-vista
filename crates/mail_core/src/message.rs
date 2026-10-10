@@ -11,6 +11,10 @@ pub fn hash(bytes: &[u8]) -> String {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Summary {
+    #[serde(default)]
+    pub has_attachments: Option<bool>,
+    #[serde(default)]
+    pub priority: i8,
     pub subject: String,
     pub from: String,
     pub to: String,
@@ -79,7 +83,17 @@ pub fn parse(raw: &[u8]) -> Result<Message> {
     }
     let mail = mailparse::parse_mail(raw).map_err(|e| e.to_string())?;
     let get = |name| mail.headers.get_first_value(name).unwrap_or_default();
-    let summary = Summary {
+    let priority = get("X-Priority");
+    let importance = get("Importance").to_ascii_lowercase();
+    let mut summary = Summary {
+        has_attachments: None,
+        priority: match priority.chars().next() {
+            Some('1' | '2') => 1,
+            Some('4' | '5') => -1,
+            _ if importance == "high" => 1,
+            _ if importance == "low" => -1,
+            _ => 0,
+        },
         subject: get("Subject"),
         from: get("From"),
         to: get("To"),
@@ -92,6 +106,7 @@ pub fn parse(raw: &[u8]) -> Result<Message> {
     let mut html = Vec::new();
     let mut attachments = Vec::new();
     collect(&mail, &mut plain, &mut html, &mut attachments, 0)?;
+    summary.has_attachments = Some(attachments.iter().any(|part| !part.is_embedded_image()));
     let html = (!html.is_empty()).then(|| html.join("\n\n"));
     let body = if !plain.is_empty() {
         plain.join("\n\n")
@@ -290,6 +305,10 @@ pub struct Draft {
     #[serde(default)]
     pub body: String,
     #[serde(default)]
+    pub html: Option<String>,
+    #[serde(default)]
+    pub rtf: Option<Vec<u8>>,
+    #[serde(default)]
     pub attachments: Vec<PathBuf>,
 }
 impl Draft {
@@ -414,11 +433,25 @@ impl Draft {
             encoded_header(&self.subject)
         ));
         let body = base64_lines(self.body.as_bytes());
+        let content = if let Some(html) = &self.html {
+            if html.len() > MAX_MESSAGE {
+                return Err("HTML message exceeds 50 MiB".into());
+            }
+            let alternative = format!("winmail-alt-{stamp:x}");
+            format!(
+                "Content-Type: multipart/alternative; boundary=\"{alternative}\"\r\n\r\n--{alternative}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}--{alternative}\r\nContent-Type: text/html; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{}--{alternative}--\r\n",
+                base64_lines(html.as_bytes())
+            )
+        } else {
+            format!(
+                "Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}"
+            )
+        };
         if self.attachments.is_empty() {
-            raw.push_str(&format!("Content-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}"));
+            raw.push_str(&content);
         } else {
             let boundary = format!("winmail-{stamp:x}");
-            raw.push_str(&format!("Content-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n--{boundary}\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Transfer-Encoding: base64\r\n\r\n{body}"));
+            raw.push_str(&format!("Content-Type: multipart/mixed; boundary=\"{boundary}\"\r\n\r\n--{boundary}\r\n{content}"));
             for path in &self.attachments {
                 let bytes = crate::store::read_bounded(path)?;
                 if bytes.len() > MAX_MESSAGE {

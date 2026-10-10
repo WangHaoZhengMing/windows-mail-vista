@@ -1,4 +1,5 @@
 //! Compose window controls and native events.
+mod rich;
 use super::{DISPATCH, command_ids::command_id, menus};
 use crate::platform::icons;
 use crate::{
@@ -39,6 +40,8 @@ struct ComposeState {
     subject: HWND,
     body: HWND,
     format: Vec<HWND>,
+    rich: Cell<bool>,
+    colors: RefCell<[u32; 16]>,
     labels: Vec<HWND>,
     paths: RefCell<Vec<std::path::PathBuf>>,
     dirty: Cell<bool>,
@@ -76,6 +79,8 @@ impl Window {
                 subject: null_mut(),
                 body: null_mut(),
                 format: Vec::new(),
+                rich: Cell::new(true),
+                colors: RefCell::new([0; 16]),
                 labels: Vec::new(),
                 paths: RefCell::new(Vec::new()),
                 dirty: Cell::new(false),
@@ -207,6 +212,13 @@ impl Window {
                     wide(&value.replace("\r\n", "\n").replace('\n', "\r\n")).as_ptr(),
                 );
             }
+            if let Some(rtf) = &draft.rtf {
+                rich::restore(self.state.body, rtf);
+            }
+            self.state
+                .rich
+                .set(draft.html.is_some() || draft.rtf.is_some() || draft.body.is_empty());
+            rich::sync(&self.state);
             *self.state.paths.borrow_mut() = draft.attachments;
             self.state.loading.set(false);
             self.state.dirty.set(false);
@@ -222,6 +234,8 @@ impl Window {
                 bcc: text(self.state.bcc),
                 subject: text(self.state.subject),
                 body: text(self.state.body),
+                html: self.state.rich.get().then(|| rich::html(self.state.body)),
+                rtf: self.state.rich.get().then(|| rich::rtf(self.state.body)),
                 attachments: self.state.paths.borrow().clone(),
             }
         }
@@ -252,7 +266,13 @@ impl Drop for Window {
 impl ComposeState {
     unsafe fn update_dpi(&mut self, value: u32) {
         unsafe {
+            let saved = rich::rtf(self.body);
+            let loading = self.loading.replace(true);
             self.metrics.update(self.hwnd, value);
+            if !saved.is_empty() {
+                rich::restore(self.body, &saved);
+            }
+            self.loading.set(loading);
             let icons = classic::resize_toolbar(self.bar, self.metrics.dpi);
             ImageList_Destroy(std::mem::replace(&mut self.icons, icons));
         }
@@ -306,15 +326,25 @@ impl ComposeState {
             self.cc = control(hwnd, "EDIT", "", ES_AUTOHSCROLL as u32 | WS_TABSTOP, 202);
             self.bcc = control(hwnd, "EDIT", "", ES_AUTOHSCROLL as u32 | WS_TABSTOP, 205);
             self.subject = control(hwnd, "EDIT", "", ES_AUTOHSCROLL as u32 | WS_TABSTOP, 203);
+            static RICHEDIT: std::sync::OnceLock<usize> = std::sync::OnceLock::new();
+            RICHEDIT.get_or_init(|| LoadLibraryW(wide("Msftedit.dll").as_ptr()) as usize);
             self.body = control(
                 hwnd,
-                "EDIT",
+                "RICHEDIT50W",
                 "",
-                ES_MULTILINE as u32 | ES_AUTOVSCROLL as u32 | WS_VSCROLL | WS_TABSTOP,
+                ES_MULTILINE as u32
+                    | ES_AUTOVSCROLL as u32
+                    | ES_NOHIDESEL as u32
+                    | WS_VSCROLL
+                    | WS_TABSTOP,
                 204,
             );
             SendMessageW(self.body, EM_SETLIMITTEXT, 8 * 1024 * 1024, 0);
-            for value in ["Arial", "12", "B", "I", "U", "A", "≡", "•"] {
+            for (index, value) in ["Arial", "12", "B", "I", "U", "A", "≡", "•"]
+                .iter()
+                .enumerate()
+            {
+                let value = *value;
                 let h = control(
                     hwnd,
                     if value == "Arial" || value == "12" {
@@ -326,18 +356,44 @@ impl ComposeState {
                     if value == "Arial" || value == "12" {
                         CBS_DROPDOWNLIST as u32
                     } else {
-                        BS_PUSHBUTTON as u32
-                    },
-                    0,
+                        if matches!(index, 2..=4) {
+                            BS_AUTOCHECKBOX as u32 | BS_PUSHLIKE as u32
+                        } else {
+                            BS_PUSHBUTTON as u32
+                        }
+                    } | WS_TABSTOP,
+                    rich::FIRST + index as u16,
                 );
-                if value == "Arial" || value == "12" {
-                    SendMessageW(h, CB_ADDSTRING, 0, wide(value).as_ptr() as isize);
-                    SendMessageW(h, CB_SETCURSEL, 0, 0);
+                if index < 2 {
+                    let values = if index == 0 {
+                        vec![
+                            "Arial",
+                            "Calibri",
+                            "Segoe UI",
+                            "Times New Roman",
+                            "Consolas",
+                            "Microsoft YaHei",
+                        ]
+                    } else {
+                        vec![
+                            "8", "9", "10", "11", "12", "14", "16", "18", "24", "32", "48", "72",
+                        ]
+                    };
+                    for item in values {
+                        SendMessageW(h, CB_ADDSTRING, 0, wide(item).as_ptr() as isize);
+                    }
+                    let selected = SendMessageW(
+                        h,
+                        CB_FINDSTRINGEXACT,
+                        usize::MAX,
+                        wide(value).as_ptr() as isize,
+                    );
+                    SendMessageW(h, CB_SETCURSEL, selected as usize, 0);
                 }
-                windows_sys::Win32::UI::Input::KeyboardAndMouse::EnableWindow(h, 0);
                 self.format.push(h);
             }
             self.update_dpi(dpi::window_dpi(hwnd));
+            rich::initialize(self);
         }
     }
     fn layout(&self) {
@@ -396,7 +452,15 @@ impl ComposeState {
                 } else {
                     25
                 };
-                dpi::move_control(self.metrics.dpi, *control, x, top, w, 22, 1);
+                dpi::move_control(
+                    self.metrics.dpi,
+                    *control,
+                    x,
+                    top,
+                    w,
+                    if i < 2 { 220 } else { 22 },
+                    1,
+                );
                 x += w + 2;
             }
             dpi::move_control(
@@ -419,6 +483,19 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
                 GWLP_USERDATA,
                 (*(lp as *const CREATESTRUCTW)).lpCreateParams as isize,
             );
+        }
+        if msg == WM_NOTIFY && !lp.eq(&0) {
+            let notification = &*(lp as *const NMHDR);
+            let pointer = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const ComposeState;
+            if let Some(state) = pointer.as_ref() {
+                if notification.hwndFrom == state.body
+                    && notification.code == rich::EN_SELCHANGE
+                    && !state.loading.get()
+                {
+                    rich::sync(state);
+                    return 0;
+                }
+            }
         }
         if msg == WM_NOTIFY
             && let Some(result) = classic::custom_draw(lp)
@@ -456,6 +533,16 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
             WM_COMMAND => {
                 let id = wp & 0xffff;
                 let notification = wp >> 16;
+                if (rich::FIRST as usize..rich::FIRST as usize + 8).contains(&id) {
+                    let index = id - rich::FIRST as usize;
+                    if state.rich.get()
+                        && ((index < 2 && notification == CBN_SELCHANGE as usize)
+                            || (index >= 2 && notification == BN_CLICKED as usize))
+                    {
+                        rich::command(state, index);
+                    }
+                    return 0;
+                }
                 if (201..=205).contains(&id) && notification == EN_CHANGE as usize {
                     if !state.loading.get() {
                         state.dirty.set(true);
@@ -496,7 +583,11 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
                         state.show_bcc.set(!state.show_bcc.get());
                         state.layout();
                     }
-                    menus::PLAIN_TEXT => {}
+                    menus::PLAIN_TEXT | menus::RICH_TEXT => {
+                        state.rich.set(id == menus::RICH_TEXT);
+                        state.dirty.set(true);
+                        rich::sync(state);
+                    }
                     _ => {
                         PostMessageW(state.owner, DISPATCH, id, hwnd as isize);
                     }

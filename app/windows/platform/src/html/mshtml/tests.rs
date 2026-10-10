@@ -21,6 +21,60 @@ use windows::Win32::System::{
 };
 
 struct Parent(HWND);
+
+#[test]
+fn selected_html_text_copies_without_copying_the_entire_message() {
+    let parent = Parent::new();
+    let renderer = unsafe { MshtmlRenderer::new(parent.0, parent.0, WM_APP + 98) }.unwrap();
+    renderer
+        .render(HtmlDocument {
+            html: "<p>Before <span id=code>123456</span> After</p>".into(),
+            inline_images: Vec::new(),
+            remote_images: RemoteImagePolicy::Block,
+        })
+        .unwrap();
+    pump_until(&renderer, "copy fixture", || {
+        renderer.status() == HtmlStatus::Ready
+    });
+    let document = renderer.state.document.borrow().clone().unwrap();
+    let body = dispatch::object(&document, "body").unwrap();
+    let range = IDispatch::try_from(
+        &dispatch::invoke(&body, "createTextRange", DISPATCH_METHOD, &mut []).unwrap(),
+    )
+    .unwrap();
+    dispatch::invoke(
+        &range,
+        "moveToElementText",
+        DISPATCH_METHOD,
+        &mut [VARIANT::from(element(&renderer, "code"))],
+    )
+    .unwrap();
+    dispatch::invoke(&range, "select", DISPATCH_METHOD, &mut []).unwrap();
+    assert_eq!(dispatch::text(&range, "text").unwrap(), "123456");
+    unsafe {
+        document
+            .cast::<IOleCommandTarget>()
+            .unwrap()
+            .Exec(
+                std::ptr::null(),
+                OLECMDID_COPY.0 as u32,
+                OLECMDEXECOPT_DODEFAULT.0 as u32,
+                std::ptr::null(),
+                null_mut(),
+            )
+            .unwrap();
+        use windows_sys::Win32::System::{DataExchange::*, Memory::*};
+        assert_ne!(OpenClipboard(parent.0), 0);
+        let memory = GetClipboardData(13); // CF_UNICODETEXT
+        assert!(!memory.is_null());
+        let pointer = GlobalLock(memory) as *const u16;
+        assert!(!pointer.is_null());
+        let actual = std::slice::from_raw_parts(pointer, 7).to_vec();
+        GlobalUnlock(memory);
+        CloseClipboard();
+        assert_eq!(actual, wide("123456"));
+    }
+}
 impl Parent {
     fn new() -> Self {
         let hwnd = unsafe {

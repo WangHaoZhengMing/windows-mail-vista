@@ -13,6 +13,7 @@ pub(super) enum DragTarget {
 pub(super) enum PreviewFormat {
     #[default]
     PlainText,
+    Loading,
     Html,
 }
 

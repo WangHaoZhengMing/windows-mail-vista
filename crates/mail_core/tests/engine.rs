@@ -5,6 +5,69 @@ use mail_core::{
 use std::path::PathBuf;
 
 struct Temp(PathBuf);
+
+#[test]
+fn legacy_index_recovers_attachment_and_priority_metadata() {
+    let tmp = Temp::new();
+    let file = tmp.0.join("test.bin");
+    std::fs::write(&file, b"attachment").unwrap();
+    let draft = Draft {
+        to: "reader@example.com".into(),
+        attachments: vec![file],
+        ..Default::default()
+    };
+    let mut raw = b"X-Priority: 5 (Lowest)\r\n".to_vec();
+    raw.extend(draft.build("sender@example.com").unwrap());
+    {
+        let mut store = Store::open(&tmp.0).unwrap();
+        store.import(&raw, "Inbox", None).unwrap();
+        assert_eq!(store.entries()[0].summary.has_attachments, Some(true));
+        assert_eq!(store.entries()[0].summary.priority, -1);
+    }
+    let index = tmp.0.join("index.json");
+    let mut value: serde_json::Value =
+        serde_json::from_slice(&std::fs::read(&index).unwrap()).unwrap();
+    let summary = value["messages"][0]["summary"].as_object_mut().unwrap();
+    summary.remove("has_attachments");
+    summary.remove("priority");
+    std::fs::write(&index, serde_json::to_vec(&value).unwrap()).unwrap();
+    let store = Store::open(&tmp.0).unwrap();
+    assert_eq!(store.entries()[0].summary.has_attachments, Some(true));
+    assert_eq!(store.entries()[0].summary.priority, -1);
+}
+
+#[test]
+fn rich_mail_preserves_bodies_attachments_and_draft_formatting() {
+    let tmp = Temp::new();
+    let file = tmp.0.join("data.bin");
+    std::fs::write(&file, b"binary-data").unwrap();
+    let mut draft = Draft {
+        to: "recipient@example.com".into(),
+        bcc: "secret@example.com".into(),
+        body: "中文 & code 123456".into(),
+        html: Some("<p><b>中文 &amp; code 123456</b></p>".into()),
+        rtf: Some(b"private editor data".to_vec()),
+        ..Default::default()
+    };
+    for attach in [false, true] {
+        if attach {
+            draft.attachments.push(file.clone());
+        }
+        let raw = draft.build("sender@example.com").unwrap();
+        let parsed = message::parse(&raw).unwrap();
+        assert_eq!(parsed.body, draft.body);
+        assert_eq!(parsed.html, draft.html);
+        assert_eq!(parsed.attachments.len(), usize::from(attach));
+        assert!(!String::from_utf8_lossy(&raw).contains("secret@example.com"));
+        assert!(!String::from_utf8_lossy(&raw).contains("private editor data"));
+    }
+    let id = {
+        let mut store = Store::open(&tmp.0).unwrap();
+        store.save_draft("sender@example.com", &draft).unwrap()
+    };
+    let reopened = Store::open(&tmp.0).unwrap();
+    assert_eq!(reopened.draft(&id).unwrap().rtf, draft.rtf);
+}
 impl Temp {
     fn new() -> Self {
         let nonce = std::time::SystemTime::now()
@@ -36,6 +99,7 @@ fn mime_unicode_binary_and_envelope_only_bcc_roundtrip() {
         subject: "测试邮件主题很长，确认编码分行仍能还原。".repeat(3),
         body: "中文正文\n.second line".into(),
         attachments: vec![path],
+        ..Default::default()
     };
     let raw = draft.build("sender@example.com").unwrap();
     let text = String::from_utf8_lossy(&raw);

@@ -471,6 +471,14 @@ fn native_message_menu_excludes_nonselectable_source_and_foreign_mailboxes_and_f
             ),
             0
         );
+        assert_eq!(item.iImage, -2);
+        item.iSubItem = 3;
+        SendMessageW(
+            window.controls.list,
+            LVM_GETITEMW,
+            0,
+            &mut item as *mut _ as isize,
+        );
         assert_eq!(item.iImage, FolderIcon::UnreadMessage as i32);
         let mut buffer = [0u16; 16];
         let mut item = LVITEMW {

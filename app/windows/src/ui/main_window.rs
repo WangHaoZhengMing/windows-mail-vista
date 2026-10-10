@@ -540,7 +540,10 @@ impl MainWindow {
                 self.controls.list,
                 LVM_SETEXTENDEDLISTVIEWSTYLE,
                 0,
-                (LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER | LVS_EX_HEADERDRAGDROP) as isize,
+                (LVS_EX_FULLROWSELECT
+                    | LVS_EX_DOUBLEBUFFER
+                    | LVS_EX_HEADERDRAGDROP
+                    | LVS_EX_SUBITEMIMAGES) as isize,
             );
             SendMessageW(
                 self.controls.list,
@@ -550,8 +553,8 @@ impl MainWindow {
             );
             for (index, (label, width)) in [
                 ("!", 22),
-                ("", 22),
-                ("Flag", 30),
+                ("📎", 22),
+                ("⚐", 22),
                 ("From", 140),
                 ("Subject", 420),
                 ("Received", 96),
@@ -561,7 +564,12 @@ impl MainWindow {
             {
                 let label = wide(label);
                 let column = LVCOLUMNW {
-                    mask: LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM,
+                    mask: LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM | LVCF_FMT,
+                    fmt: if index < 3 {
+                        LVCFMT_CENTER
+                    } else {
+                        LVCFMT_LEFT
+                    },
                     pszText: label.as_ptr().cast_mut(),
                     cx: *width,
                     iSubItem: index as i32,
@@ -796,7 +804,16 @@ impl MainWindow {
                 .as_ref()
                 .is_some_and(HtmlView::has_blocked_images);
         self.layout.preview_format = match self.html_view.as_ref().map(HtmlView::status) {
-            Some(HtmlStatus::Ready) if self.preview_has_html => PreviewFormat::Html,
+            Some(HtmlStatus::Loading) if self.preview_has_html => {
+                self.status("Loading message…");
+                PreviewFormat::Loading
+            }
+            Some(HtmlStatus::Ready) if self.preview_has_html => {
+                if self.layout.preview_format == PreviewFormat::Loading {
+                    self.status("Ready");
+                }
+                PreviewFormat::Html
+            }
             Some(HtmlStatus::Failed(error)) if self.preview_has_html => {
                 self.status(&format!(
                     "HTML view unavailable; showing plain text: {error}"
@@ -913,11 +930,15 @@ impl MainWindow {
             self.list_rows = entries
                 .iter()
                 .map(|entry| {
-                    super::message_list::Row::new(
+                    let mut row = super::message_list::Row::new(
                         &entry.summary.from,
                         &entry.summary.date,
                         entry.read,
-                    )
+                    );
+                    row.priority = entry.summary.priority;
+                    row.attachment = entry.summary.has_attachments.unwrap_or(false);
+                    row.flagged = entry.flags.flagged;
+                    row
                 })
                 .collect();
             if self.app.selected_id().is_none() {
@@ -931,11 +952,7 @@ impl MainWindow {
                     mask: LVIF_TEXT | LVIF_IMAGE,
                     iItem: index as i32,
                     pszText: empty.as_ptr().cast_mut(),
-                    iImage: if entry.read {
-                        FolderIcon::ReadMessage
-                    } else {
-                        FolderIcon::UnreadMessage
-                    } as i32,
+                    iImage: -2, // I_IMAGENONE: the envelope belongs to From.
                     ..Default::default()
                 };
                 SendMessageW(
@@ -970,6 +987,23 @@ impl MainWindow {
                         &item as *const _ as isize,
                     );
                 }
+                let image = LVITEMW {
+                    mask: LVIF_IMAGE,
+                    iItem: index as i32,
+                    iSubItem: 3,
+                    iImage: if entry.read {
+                        FolderIcon::ReadMessage
+                    } else {
+                        FolderIcon::UnreadMessage
+                    } as i32,
+                    ..Default::default()
+                };
+                SendMessageW(
+                    self.controls.list,
+                    LVM_SETITEMW,
+                    0,
+                    &image as *const _ as isize,
+                );
                 if selected.as_ref() == Some(&entry.id) {
                     let state = LVITEMW {
                         state: LVIS_SELECTED | LVIS_FOCUSED,
@@ -1019,6 +1053,12 @@ impl MainWindow {
                             .list_rows
                             .get(draw.nmcd.dwItemSpec)
                             .is_some_and(|row| row.unread);
+                        if (0..3).contains(&draw.iSubItem) {
+                            if let Some(row) = self.list_rows.get(draw.nmcd.dwItemSpec) {
+                                super::message_list::draw_status(self.controls.list, &draw, row);
+                                return Some(CDRF_SKIPDEFAULT as isize);
+                            }
+                        }
                         let weight = if unread && matches!(draw.iSubItem, 3 | 4) {
                             dpi::FontWeight::Bold
                         } else {
@@ -1090,6 +1130,7 @@ impl MainWindow {
                     let item = LVITEMW {
                         mask: LVIF_IMAGE,
                         iItem: index as i32,
+                        iSubItem: 3,
                         iImage: FolderIcon::ReadMessage as i32,
                         ..Default::default()
                     };
@@ -2211,8 +2252,10 @@ mod tests {
             let properties = FindWindowW(wide("WinMailRustAccountProperties").as_ptr(), null());
             assert_eq!(GetWindow(properties, GW_OWNER), account);
             assert_ne!(properties, account);
-            let before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
-            for _ in 0..2 {
+            let mut before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
+            // RichEdit initializes a process font cache at each new DPI. Warm
+            // all sizes once, then measure repeated transitions for leaks.
+            for pass in 0..3 {
                 for value in [96, 120, 144, 168, 192, 288, 384, 96] {
                     for (window, width, height) in [
                         (hwnd, 1050, 730),
@@ -2326,7 +2369,7 @@ mod tests {
                         );
                     }
                     let font =
-                        SendMessageW(GetDlgItem(composer.hwnd(), 204), WM_GETFONT, 0, 0) as HFONT;
+                        SendMessageW(GetDlgItem(composer.hwnd(), 203), WM_GETFONT, 0, 0) as HFONT;
                     let mut info = LOGFONTW::default();
                     assert_ne!(
                         GetObjectW(
@@ -2337,6 +2380,24 @@ mod tests {
                         0
                     );
                     assert_eq!(info.lfHeight, -dpi::scale(12, value));
+                    // RichEdit owns character formats rather than a GDI font
+                    // handle. Point size must survive monitor DPI changes.
+                    {
+                        use windows::Win32::UI::Controls::RichEdit::{
+                            CHARFORMATW, EM_GETCHARFORMAT, SCF_SELECTION,
+                        };
+                        let mut format = CHARFORMATW {
+                            cbSize: std::mem::size_of::<CHARFORMATW>() as u32,
+                            ..Default::default()
+                        };
+                        SendMessageW(
+                            GetDlgItem(composer.hwnd(), 204),
+                            EM_GETCHARFORMAT,
+                            SCF_SELECTION as usize,
+                            &mut format as *mut _ as isize,
+                        );
+                        assert_eq!(format.yHeight, 240);
+                    }
                     GetWindowRect(GetDlgItem(properties, 300), &mut rect);
                     assert_eq!(rect.right - rect.left, dpi::scale(596, value));
                     assert_eq!(composer.draft().subject, "DPI 中文 fixture");
@@ -2358,6 +2419,9 @@ mod tests {
                     assert_eq!(bitmap.bmWidth, dpi::scale(32, value));
                     DeleteObject(icon.hbmColor);
                     DeleteObject(icon.hbmMask);
+                }
+                if pass == 0 {
+                    before = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);
                 }
             }
             let after = GetGuiResources(GetCurrentProcess(), GR_GDIOBJECTS);

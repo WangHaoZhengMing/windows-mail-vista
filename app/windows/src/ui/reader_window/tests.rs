@@ -132,6 +132,35 @@ fn reader_is_read_only_routes_its_identity_and_scales_at_high_dpi() {
         assert_eq!(window_text(GetDlgItem(hwnd, TO as i32)), "me@example.com");
         let body = GetDlgItem(hwnd, BODY as i32);
         assert_eq!(window_text(body), "first line\r\nsecond line");
+        assert_eq!(
+            GetWindowLongW(GetDlgItem(hwnd, TO as i32), GWL_STYLE) as u32 & WS_VISIBLE,
+            0
+        );
+        SendMessageW(hwnd, WM_COMMAND, SHOW_DETAILS as usize, 0);
+        assert_ne!(
+            GetWindowLongW(GetDlgItem(hwnd, TO as i32), GWL_STYLE) as u32 & WS_VISIBLE,
+            0
+        );
+        SendMessageW(hwnd, WM_COMMAND, SHOW_DETAILS as usize, 0);
+        SendMessageW(hwnd, WM_COMMAND, COPY_BODY as usize, 0);
+        assert_eq!(
+            window_text(window.state.controls.status.get()),
+            "Message text copied"
+        );
+        {
+            use windows_sys::Win32::System::{DataExchange::*, Memory::*, Ole::CF_UNICODETEXT};
+            assert_ne!(OpenClipboard(hwnd), 0);
+            let memory = GetClipboardData(CF_UNICODETEXT as u32);
+            assert!(!memory.is_null());
+            let pointer = GlobalLock(memory) as *const u16;
+            assert!(!pointer.is_null());
+            let expected = wide("first line\r\nsecond line");
+            let actual = std::slice::from_raw_parts(pointer, expected.len()).to_vec();
+            GlobalUnlock(memory);
+            CloseClipboard();
+            assert_eq!(actual, expected);
+        }
+
         assert_ne!(
             GetWindowLongW(body, GWL_STYLE) as u32 & ES_READONLY as u32,
             0
@@ -224,7 +253,53 @@ fn html_reader_uses_renderer_and_preserves_plain_fallback() {
             0
         );
     }
+    // WebView2 is opt-in; switching back destroys its host even while its
+    // asynchronous controller is still being initialized.
+    assert_eq!(window.state.engine.get(), WindowsHtmlEngine::Mshtml);
+    unsafe {
+        SendMessageW(window.hwnd(), WM_COMMAND, SWITCH_RENDERER as usize, 0);
+    }
+    assert_eq!(window.state.engine.get(), WindowsHtmlEngine::WebView2);
+    assert_eq!(
+        unsafe { GetWindowLongW(window.state.controls.body.get(), GWL_STYLE) as u32 & WS_VISIBLE },
+        0
+    );
+    assert_ne!(
+        unsafe {
+            GetWindowLongW(window.state.controls.loading.get(), GWL_STYLE) as u32 & WS_VISIBLE
+        },
+        0
+    );
+    let web_host = window.state.renderer.borrow().as_ref().unwrap().hwnd();
+    unsafe {
+        SendMessageW(window.hwnd(), WM_COMMAND, SWITCH_RENDERER as usize, 0);
+    }
+    assert_eq!(unsafe { IsWindow(web_host) }, 0);
+    assert_eq!(window.state.engine.get(), WindowsHtmlEngine::Mshtml);
+    pump();
+    // Also exercise a fully initialized WebView, then release it on close.
+    unsafe {
+        SendMessageW(window.hwnd(), WM_COMMAND, SWITCH_RENDERER as usize, 0);
+    }
+    let deadline = Instant::now() + Duration::from_secs(20);
+    loop {
+        pump();
+        match window.state.renderer.borrow().as_ref().unwrap().status() {
+            HtmlStatus::Ready => break,
+            HtmlStatus::Failed(error) => panic!("WebView reader failed: {error}"),
+            HtmlStatus::Loading => {
+                assert!(
+                    Instant::now() < deadline,
+                    "WebView reader did not become ready"
+                );
+                std::thread::sleep(Duration::from_millis(10));
+            }
+        }
+    }
+    let web_host = window.state.renderer.borrow().as_ref().unwrap().hwnd();
     window.close();
+    assert_eq!(unsafe { IsWindow(web_host) }, 0);
+    pump();
     assert!(window.state.renderer.borrow().is_none());
     assert!(!window.active());
 }

@@ -125,6 +125,19 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
             );
         });
         let list = host.with_window(|window| window.controls.list);
+        for (column, expected) in [(0, -2), (3, FolderIcon::UnreadMessage as i32)] {
+            let mut icon = LVITEMW {
+                mask: LVIF_IMAGE,
+                iItem: 0,
+                iSubItem: column,
+                ..Default::default()
+            };
+            assert_ne!(
+                SendMessageW(list, LVM_GETITEMW, 0, &mut icon as *mut _ as isize),
+                0
+            );
+            assert_eq!(icon.iImage, expected);
+        }
         let mut buffer = [0u16; 256];
         let item = LVITEMW {
             iSubItem: 3,
@@ -141,6 +154,38 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
         );
         host.with_window(|window| {
             assert!(window.list_rows[0].unread);
+            // A misleading CDIS_SELECTED flag must not paint every status lane
+            // blue. Only the real native row selection controls its background.
+            assert_eq!(
+                SendMessageW(list, LVM_GETITEMSTATE, 0, LVIS_SELECTED as isize),
+                0
+            );
+            let source = GetDC(list);
+            let dc = CreateCompatibleDC(source);
+            let bitmap = CreateCompatibleBitmap(source, 1200, 1200);
+            let old = SelectObject(dc, bitmap);
+            let draw = NMLVCUSTOMDRAW {
+                nmcd: NMCUSTOMDRAW {
+                    hdc: dc,
+                    dwItemSpec: 0,
+                    uItemState: CDIS_SELECTED,
+                    ..Default::default()
+                },
+                iSubItem: 0,
+                ..Default::default()
+            };
+            super::super::message_list::draw_status(list, &draw, &window.list_rows[0]);
+            let mut bounds = RECT {
+                left: LVIR_BOUNDS as i32,
+                ..Default::default()
+            };
+            SendMessageW(list, LVM_GETSUBITEMRECT, 0, &mut bounds as *mut _ as isize);
+            let background = GetPixel(dc, bounds.left + 2, bounds.top + 2);
+            SelectObject(dc, old);
+            DeleteObject(bitmap);
+            DeleteDC(dc);
+            ReleaseDC(list, source);
+            assert_eq!(background, 0xffffff);
             assert_eq!(
                 window.list_rows[0].from_tip,
                 wide("Sender Name <sender@example.com>")

@@ -16,7 +16,9 @@ use crate::{
         classic,
         controls::{control, set_window_text},
         dpi,
-        html::{HtmlDocument, HtmlStatus, HtmlView, InlineImage, RemoteImagePolicy},
+        html::{
+            HtmlDocument, HtmlStatus, HtmlView, InlineImage, RemoteImagePolicy, WindowsHtmlEngine,
+        },
         strings::wide,
     },
 };
@@ -26,7 +28,7 @@ use std::{
 };
 use windows_sys::Win32::{
     Foundation::*,
-    Graphics::Gdi::COLOR_BTNFACE,
+    Graphics::Gdi::*,
     System::LibraryLoader::*,
     UI::{
         Controls::*,
@@ -40,6 +42,9 @@ use windows_sys::Win32::{
 const HTML_STATUS: u32 = WM_APP + 13;
 const SHOW_PICTURES: u16 = 426;
 const CLOSE_READER: u16 = 427;
+const SWITCH_RENDERER: u16 = 428;
+const SHOW_DETAILS: u16 = 429;
+const COPY_BODY: u16 = 430;
 const SUBJECT: u16 = 420;
 const FROM: u16 = 421;
 const TO: u16 = 422;
@@ -54,6 +59,8 @@ struct Controls {
     blocked: Cell<HWND>,
     pictures: Cell<HWND>,
     status: Cell<HWND>,
+    loading: Cell<HWND>,
+    summary: Cell<HWND>,
 }
 
 struct ReaderState {
@@ -65,6 +72,9 @@ struct ReaderState {
     metrics: RefCell<dpi::Resources>,
     icons: Cell<HIMAGELIST>,
     renderer: RefCell<Option<HtmlView>>,
+    engine: Cell<WindowsHtmlEngine>,
+    rendered: Cell<bool>,
+    details: Cell<bool>,
     remote_images: Cell<RemoteImagePolicy>,
 }
 
@@ -89,6 +99,9 @@ impl Window {
                 metrics: RefCell::new(dpi::Resources::default()),
                 icons: Cell::new(0),
                 renderer: RefCell::new(None),
+                engine: Cell::new(WindowsHtmlEngine::Mshtml),
+                rendered: Cell::new(false),
+                details: Cell::new(false),
                 remote_images: Cell::new(RemoteImagePolicy::Block),
             });
             let class = wide("WinMailRust.Reader");
@@ -212,7 +225,78 @@ impl Drop for Window {
 }
 
 impl ReaderState {
+    fn copy_text(&self) -> std::result::Result<(), &'static str> {
+        use windows_sys::Win32::System::{DataExchange::*, Memory::*, Ole::CF_UNICODETEXT};
+        unsafe {
+            let text = wide(
+                &self
+                    .message
+                    .body
+                    .replace("\r\n", "\n")
+                    .replace('\r', "\n")
+                    .replace('\n', "\r\n"),
+            );
+            let memory = GlobalAlloc(GMEM_MOVEABLE, text.len() * 2);
+            if memory.is_null() {
+                return Err("Cannot allocate clipboard text");
+            }
+            let pointer = GlobalLock(memory) as *mut u16;
+            if pointer.is_null() {
+                GlobalFree(memory);
+                return Err("Cannot prepare clipboard text");
+            }
+            std::ptr::copy_nonoverlapping(text.as_ptr(), pointer, text.len());
+            GlobalUnlock(memory);
+            if OpenClipboard(self.hwnd.get()) == 0 {
+                GlobalFree(memory);
+                return Err("Clipboard is busy; try again");
+            }
+            let success =
+                EmptyClipboard() != 0 && !SetClipboardData(CF_UNICODETEXT as u32, memory).is_null();
+            CloseClipboard();
+            if success {
+                Ok(())
+            } else {
+                GlobalFree(memory);
+                Err("Cannot copy message text")
+            }
+        }
+    }
+
+    fn switch_renderer(&self) {
+        if self.message.html.is_none() {
+            return;
+        }
+        // Destroy the old host before creating its replacement. In particular,
+        // WebView2 teardown closes its controller and cancels pending callbacks.
+        self.release_renderer();
+        self.engine.set(match self.engine.get() {
+            WindowsHtmlEngine::Mshtml => WindowsHtmlEngine::WebView2,
+            WindowsHtmlEngine::WebView2 => WindowsHtmlEngine::Mshtml,
+        });
+        unsafe {
+            let text = wide(match self.engine.get() {
+                WindowsHtmlEngine::Mshtml => "Use WebView",
+                WindowsHtmlEngine::WebView2 => "Lightweight view",
+            });
+            let info = TBBUTTONINFOW {
+                cbSize: std::mem::size_of::<TBBUTTONINFOW>() as u32,
+                dwMask: TBIF_TEXT,
+                pszText: text.as_ptr() as *mut _,
+                ..Default::default()
+            };
+            SendMessageW(
+                self.controls.toolbar.get(),
+                TB_SETBUTTONINFOW,
+                SWITCH_RENDERER as usize,
+                &info as *const _ as isize,
+            );
+        }
+        self.render_html();
+    }
+
     fn release_renderer(&self) {
+        self.rendered.set(false);
         let renderer = self.renderer.borrow_mut().take();
         // COM teardown may call the host's window procedure synchronously.
         // Release the RefCell guard before invoking the renderer's destructor.
@@ -236,7 +320,14 @@ impl ReaderState {
             return;
         };
         if self.renderer.borrow().is_none() {
-            match unsafe { HtmlView::new(self.hwnd.get(), self.hwnd.get(), HTML_STATUS) } {
+            match unsafe {
+                HtmlView::new_with_engine(
+                    self.hwnd.get(),
+                    self.hwnd.get(),
+                    HTML_STATUS,
+                    self.engine.get(),
+                )
+            } {
                 Ok(view) => *self.renderer.borrow_mut() = Some(view),
                 Err(error) => {
                     unsafe {
@@ -319,6 +410,49 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
             return DefWindowProcW(hwnd, msg, wp, lp);
         };
         match msg {
+            WM_PAINT => {
+                let mut paint = PAINTSTRUCT::default();
+                let dc = BeginPaint(hwnd, &mut paint);
+                let dpi = state.metrics.borrow().dpi;
+                let mut rect = RECT::default();
+                GetClientRect(hwnd, &mut rect);
+                rect.top = dpi::scale(30, dpi);
+                rect.bottom = dpi::scale(if state.details.get() { 140 } else { 92 }, dpi);
+                let brush = GetStockObject(DC_BRUSH) as HBRUSH;
+                SetDCBrushColor(dc, 0xfbf8f4);
+                FillRect(dc, &rect, brush);
+                rect.top = rect.bottom - dpi::scale(1, dpi).max(1);
+                SetDCBrushColor(dc, 0xe5d7c8);
+                FillRect(dc, &rect, brush);
+                EndPaint(hwnd, &paint);
+                0
+            }
+            WM_CTLCOLORSTATIC => {
+                let control = lp as HWND;
+                let headers = state.controls.headers.borrow();
+                let label = headers.iter().any(|(label, _)| *label == control);
+                if label
+                    || headers.iter().any(|(_, value)| *value == control)
+                    || control == state.controls.summary.get()
+                {
+                    let dc = wp as HDC;
+                    SetBkColor(dc, 0xfbf8f4);
+                    SetTextColor(
+                        dc,
+                        if label {
+                            0x84705e
+                        } else if control == GetDlgItem(hwnd, SUBJECT as i32) {
+                            0x74421f
+                        } else {
+                            0x40362d
+                        },
+                    );
+                    SetDCBrushColor(dc, 0xfbf8f4);
+                    GetStockObject(DC_BRUSH) as isize
+                } else {
+                    DefWindowProcW(hwnd, msg, wp, lp)
+                }
+            }
             WM_CREATE => {
                 state.setup(hwnd);
                 0
@@ -349,6 +483,17 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
             WM_COMMAND => {
                 let id = (wp & 0xffff) as u16;
                 match id {
+                    SHOW_DETAILS => {
+                        state.details.set(!state.details.get());
+                        state.layout();
+                    }
+                    COPY_BODY => match state.copy_text() {
+                        Ok(()) => {
+                            set_window_text(state.controls.status.get(), "Message text copied")
+                        }
+                        Err(error) => set_window_text(state.controls.status.get(), error),
+                    },
+                    SWITCH_RENDERER => state.switch_renderer(),
                     SHOW_PICTURES => {
                         state.remote_images.set(RemoteImagePolicy::Allow);
                         state.render_html();

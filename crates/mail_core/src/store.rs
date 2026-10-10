@@ -119,6 +119,28 @@ impl Store {
         };
         store.migrate()?;
         store.recover()?;
+        // Older indexes lack list attachment/priority metadata. Read each old
+        // cached message once, then persist it instead of parsing on every repaint.
+        let mut updated = false;
+        for entry in &mut store.catalog.messages {
+            if entry.summary.has_attachments.is_none() {
+                if entry.id.len() != 64 || !entry.id.bytes().all(|b| b.is_ascii_hexdigit()) {
+                    continue;
+                }
+                let path = store
+                    .root
+                    .join("messages")
+                    .join(format!("{}.eml", entry.id));
+                if let Ok(parsed) = read_bounded(&path).and_then(|raw| message::parse(&raw)) {
+                    entry.summary.has_attachments = parsed.summary.has_attachments;
+                    entry.summary.priority = parsed.summary.priority;
+                    updated = true;
+                }
+            }
+        }
+        if updated {
+            store.flush()?;
+        }
         Ok(store)
     }
     fn migrate(&mut self) -> Result<()> {

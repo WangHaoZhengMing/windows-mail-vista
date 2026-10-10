@@ -117,14 +117,27 @@ pub(super) unsafe fn paint_toolbar(dc: HDC, rect: RECT) {
     unsafe {
         let height = (rect.bottom - rect.top).max(1);
         for y in rect.top..rect.bottom {
-            let t = (y - rect.top) as f32 / height as f32;
-            let rgb = if t < 0.25 {
-                let k = t / 0.25;
-                (112.0 - 83.0 * k, 159.0 - 79.0 * k, 211.0 - 82.0 * k)
-            } else {
-                let k = (t - 0.25) / 0.75;
-                (29.0 - 15.0 * k, 80.0 - 42.0 * k, 129.0 - 56.0 * k)
-            };
+            // Vista/Windows Mail glass: bright upper band, a dark middle
+            // seam, reflected blue below, then the silver lower edge.
+            // Stops follow the supplied reference and scale with toolbar DPI.
+            const STOPS: &[(f32, [f32; 3])] = &[
+                (0.00, [204.0, 213.0, 223.0]),
+                (0.02, [160.0, 194.0, 233.0]),
+                (0.06, [81.0, 148.0, 224.0]),
+                (0.48, [40.0, 84.0, 144.0]),
+                (0.52, [24.0, 61.0, 118.0]),
+                (0.90, [48.0, 93.0, 156.0]),
+                (0.94, [110.0, 143.0, 187.0]),
+                (0.96, [110.0, 129.0, 154.0]),
+                (0.98, [77.0, 80.0, 84.0]),
+                (1.00, [152.0, 152.0, 152.0]),
+            ];
+            let t = (y - rect.top) as f32 / (height - 1).max(1) as f32;
+            let segment = STOPS.windows(2).find(|pair| t <= pair[1].0).unwrap();
+            let k = (t - segment[0].0) / (segment[1].0 - segment[0].0);
+            let channel =
+                |index| segment[0].1[index] + (segment[1].1[index] - segment[0].1[index]) * k;
+            let rgb = (channel(0), channel(1), channel(2));
             let color = (rgb.0 as u32) | ((rgb.1 as u32) << 8) | ((rgb.2 as u32) << 16);
             let brush = CreateSolidBrush(color);
             FillRect(

@@ -14,6 +14,7 @@ serde.workspace = true
 serde_json.workspace = true
 chrono.workspace = true
 mailparse.workspace = true
+windows = { workspace = true, features = ["Win32_UI_Controls_RichEdit", "Win32_Graphics_Gdi"] }
 mail_app.workspace = true
 mail_core.workspace = true
 mail_windows_platform = { workspace = true, features = ["ui"] }

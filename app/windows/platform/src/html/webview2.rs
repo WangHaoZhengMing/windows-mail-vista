@@ -532,7 +532,7 @@ unsafe fn configure(
         settings.SetAreHostObjectsAllowed(false)?;
         settings.SetIsWebMessageEnabled(false)?;
         settings.SetAreDefaultScriptDialogsEnabled(false)?;
-        settings.SetAreDefaultContextMenusEnabled(false)?;
+        settings.SetAreDefaultContextMenusEnabled(true)?;
         settings.SetAreDevToolsEnabled(false)?;
         settings.SetIsStatusBarEnabled(false)?;
         register_events(shared, &webview)?;
@@ -1005,6 +1005,10 @@ mod tests {
             assert!(!enabled.as_bool());
             settings.IsWebMessageEnabled(&mut enabled).unwrap();
             assert!(!enabled.as_bool());
+            settings
+                .AreDefaultContextMenusEnabled(&mut enabled)
+                .unwrap();
+            assert!(enabled.as_bool());
             // Programmatic navigation cannot leave the offline message origin.
             let blocked = view.shared.inner.borrow().blocked_navigations;
             webview

@@ -10,7 +10,7 @@ pub(crate) const SELECT_ALL: usize = 173;
 pub(crate) const TOGGLE_BCC: usize = 174;
 pub(crate) const PLAIN_TEXT: usize = 175;
 pub(crate) const SETTINGS: usize = 184;
-const RICH_TEXT: usize = 176;
+pub const RICH_TEXT: usize = 176;
 const SPELLING: usize = 177;
 
 fn id(command: Command) -> usize {
@@ -49,7 +49,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                     "F&ormat",
                     vec![
                         ("Plain Text", PLAIN_TEXT, true),
-                        ("Rich Text (HTML)", RICH_TEXT, false),
+                        ("Rich Text (HTML)", RICH_TEXT, true),
                     ],
                 ),
                 (

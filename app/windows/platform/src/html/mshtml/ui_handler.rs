@@ -98,7 +98,9 @@ unsafe extern "system" fn context_menu(
     _: *mut c_void,
     _: *mut c_void,
 ) -> HRESULT {
-    S_OK
+    // S_FALSE delegates to MSHTML's native menu (Copy, Select All, etc.).
+    // Returning S_OK without showing a menu silently swallowed right clicks.
+    S_FALSE
 }
 unsafe extern "system" fn host_info(_: *mut c_void, info: *mut HostInfo) -> HRESULT {
     if info.is_null() {
