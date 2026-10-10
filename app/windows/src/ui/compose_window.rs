@@ -1,5 +1,6 @@
 //! Compose window controls and native events.
 use super::{DISPATCH, command_ids::command_id, menus};
+use crate::platform::icons;
 use crate::{
     Result,
     account::{AccountId, AccountRecord},
@@ -265,27 +266,27 @@ impl ComposeState {
                     (
                         "Send",
                         command_id(Command::Send),
-                        classic::ToolbarIcon::Send,
+                        icons::ToolbarIcon::Send,
                         true,
                     ),
-                    ("Cut", menus::CUT as u16, classic::ToolbarIcon::Cut, true),
-                    ("Copy", menus::COPY as u16, classic::ToolbarIcon::Copy, true),
+                    ("Cut", menus::CUT as u16, icons::ToolbarIcon::Cut, true),
+                    ("Copy", menus::COPY as u16, icons::ToolbarIcon::Copy, true),
                     (
                         "Paste",
                         menus::PASTE as u16,
-                        classic::ToolbarIcon::Paste,
+                        icons::ToolbarIcon::Paste,
                         true,
                     ),
                     (
                         "Attach",
                         command_id(Command::Attach),
-                        classic::ToolbarIcon::Attach,
+                        icons::ToolbarIcon::Attach,
                         true,
                     ),
                     (
                         "Save",
                         command_id(Command::SaveDraft),
-                        classic::ToolbarIcon::Save,
+                        icons::ToolbarIcon::Save,
                         true,
                     ),
                 ],

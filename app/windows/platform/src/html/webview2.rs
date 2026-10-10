@@ -839,8 +839,9 @@ mod tests {
                             }
                             sent.send(String::from_utf8_lossy(&request).into_owned())
                                 .unwrap();
-                            let image =
-                                include_bytes!("../../../../../assets/windows/icons/toolbar.png");
+                            let image = include_bytes!(
+                                "../../../../../assets/windows/sources/legacy-runtime-atlases/toolbar.png"
+                            );
                             let header = format!(
                                 "HTTP/1.1 200 OK\r\nContent-Type: image/png\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
                                 image.len()
@@ -984,7 +985,7 @@ mod tests {
             view.set_content("<p>OBSOLETE</p>", vec![]).unwrap();
             view.set_content(r#"<style>.colored{color:rgb(12,34,56)}</style><table id="mail"><tr><td class="colored">CURRENT</td></tr></table><img id="cid" src="cid:test-image"><script>window.mailExecuted=true</script><img src="https://example.invalid/tracker" onerror="window.mailExecuted=true">"#, vec![InlineImage {
                 content_id: "test-image".into(), content_type: "image/png".into(),
-                bytes: include_bytes!("../../../../../assets/windows/icons/toolbar.png").to_vec(),
+                bytes: include_bytes!("../../../../../assets/windows/sources/legacy-runtime-atlases/toolbar.png").to_vec(),
             }]).unwrap();
             wait_ready(&view);
             let dom = inspect(

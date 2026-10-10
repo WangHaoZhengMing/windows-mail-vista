@@ -10,6 +10,8 @@ name = "WinMail"
 path = "src/main.rs"
 
 [target.'cfg(windows)'.dependencies]
+serde.workspace = true
+serde_json.workspace = true
 mail_app.workspace = true
 mail_core.workspace = true
 mail_windows_platform = { workspace = true, features = ["ui"] }

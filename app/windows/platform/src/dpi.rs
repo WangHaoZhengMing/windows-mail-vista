@@ -1,5 +1,5 @@
 //! Per-window DPI resources. Dimensions elsewhere are in 96-DPI logical pixels.
-use super::{classic, strings::wide};
+use super::strings::wide;
 use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::*,
@@ -114,8 +114,8 @@ impl Resources {
                     self.bold_font = null_mut();
                 }
             }
-            let small = classic::icon(scale(16, self.dpi));
-            let large = classic::icon(scale(32, self.dpi));
+            let small = super::icons::icon(scale(16, self.dpi));
+            let large = super::icons::icon(scale(32, self.dpi));
             SendMessageW(hwnd, WM_SETICON, ICON_SMALL as usize, small as isize);
             SendMessageW(hwnd, WM_SETICON, ICON_BIG as usize, large as isize);
             if !self.small.is_null() {

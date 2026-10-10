@@ -1,5 +1,6 @@
 //! Native read-only controls and DPI-aware layout for message windows.
 use super::*;
+use crate::platform::icons;
 use windows_sys::Win32::System::SystemServices::SS_LEFT;
 
 impl ReaderState {
@@ -13,31 +14,31 @@ impl ReaderState {
                     (
                         "Reply",
                         command_id(Command::Reply),
-                        classic::ToolbarIcon::Reply,
+                        icons::ToolbarIcon::Reply,
                         true,
                     ),
                     (
                         "Reply All",
                         command_id(Command::ReplyAll),
-                        classic::ToolbarIcon::ReplyAll,
+                        icons::ToolbarIcon::ReplyAll,
                         true,
                     ),
                     (
                         "Forward",
                         command_id(Command::Forward),
-                        classic::ToolbarIcon::Forward,
+                        icons::ToolbarIcon::Forward,
                         true,
                     ),
                     (
                         "Delete",
                         command_id(Command::Delete),
-                        classic::ToolbarIcon::Delete,
+                        icons::ToolbarIcon::Delete,
                         true,
                     ),
                     (
                         "Save Attachments",
                         command_id(Command::SaveAttachments),
-                        classic::ToolbarIcon::Attach,
+                        icons::ToolbarIcon::Attach,
                         has_attachments,
                     ),
                 ],

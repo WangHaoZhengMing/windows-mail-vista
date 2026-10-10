@@ -82,12 +82,13 @@ use crate::{
     },
     message::Draft,
     platform::{
-        classic::{self, FolderIcon, IconSet, ToolbarIcon},
+        classic,
         controls::{control, set_window_text as set, window_text as text},
         dialogs::file_dialog,
         dpi,
         filter::style_filter,
         html::{HtmlDocument, HtmlStatus, HtmlView, InlineImage, RemoteImagePolicy},
+        icons::{self, FolderIcon, IconSet, ToolbarIcon},
         menubar::MenuBar,
         search::SearchBox,
         strings::{command_words, wide},
@@ -287,7 +288,11 @@ impl MainWindow {
             controls: MainWindowControls::default(),
             layout: {
                 let preferences = account_window::settings::Preferences::load();
-                WindowLayout { show_folders: preferences.folders, show_preview: preferences.preview, ..WindowLayout::default() }
+                WindowLayout {
+                    show_folders: preferences.folders,
+                    show_preview: preferences.preview,
+                    ..WindowLayout::default()
+                }
             },
             metrics: dpi::Resources::default(),
             icons: Vec::new(),
@@ -330,11 +335,8 @@ impl MainWindow {
             }
 
             let toolbar_icons = classic::resize_toolbar(self.controls.toolbar, self.metrics.dpi);
-            let folder_icons = classic::images(IconSet::Folders, self.metrics.dpi);
-            let tree_icons = crate::platform::icons::images(
-                IconSet::FolderTree,
-                dpi::scale(20, self.metrics.dpi),
-            );
+            let folder_icons = icons::images_for_dpi(IconSet::Folders, self.metrics.dpi);
+            let tree_icons = icons::images(IconSet::FolderTree, dpi::scale(20, self.metrics.dpi));
             SendMessageW(
                 self.controls.folder,
                 TVM_SETIMAGELIST,
@@ -483,12 +485,10 @@ impl MainWindow {
                 TVS_HASBUTTONS | TVS_HASLINES | TVS_LINESATROOT | TVS_SHOWSELALWAYS | WS_TABSTOP,
                 command_ids::FOLDER,
             );
-            let folder_icons = classic::images(IconSet::Folders, dpi::window_dpi(hwnd));
+            let folder_icons = icons::images_for_dpi(IconSet::Folders, dpi::window_dpi(hwnd));
             self.icons.push(folder_icons);
-            let tree_icons = crate::platform::icons::images(
-                IconSet::FolderTree,
-                dpi::scale(20, dpi::window_dpi(hwnd)),
-            );
+            let tree_icons =
+                icons::images(IconSet::FolderTree, dpi::scale(20, dpi::window_dpi(hwnd)));
             self.icons.push(tree_icons);
             SendMessageW(
                 self.controls.folder,
@@ -1653,7 +1653,9 @@ impl MainWindow {
 impl MainWindow {
     pub(super) fn on_event(&mut self, event: WindowEvent) {
         if matches!(event, WindowEvent::Settings) {
-            unsafe { account_window::settings::open(self.controls.main); }
+            unsafe {
+                account_window::settings::open(self.controls.main);
+            }
             return;
         }
         if matches!(event, WindowEvent::SettingsChanged) {
@@ -2121,8 +2123,8 @@ mod tests {
                                     ),
                                 &node.scope,
                             );
-                            assert_eq!(item.iImage, expected);
-                            assert_eq!(item.iSelectedImage, expected);
+                            assert_eq!(item.iImage, expected as i32);
+                            assert_eq!(item.iSelectedImage, expected as i32);
                         }
                     });
                     // Verify both actual toolbar controls use complete lists at the

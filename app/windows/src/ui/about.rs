@@ -1,5 +1,5 @@
 //! Native About dialog with the application identity and build version.
-use crate::platform::{classic, dpi, strings::wide};
+use crate::platform::{dpi, icons, strings::wide};
 use std::ptr::null_mut;
 use windows_sys::Win32::{
     Foundation::HWND,
@@ -15,7 +15,7 @@ pub(super) unsafe fn show(owner: HWND) {
             env!("CARGO_PKG_VERSION")
         ));
         let footer = wide("An independent project inspired by classic Windows Mail.");
-        let icon = classic::icon(dpi::scale(48, dpi::window_dpi(owner)));
+        let icon = icons::icon(dpi::scale(48, dpi::window_dpi(owner)));
         let config = TASKDIALOGCONFIG {
             cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
             hwndParent: owner,
@@ -29,7 +29,25 @@ pub(super) unsafe fn show(owner: HWND) {
             cxWidth: 320,
             ..std::mem::zeroed()
         };
-        if TaskDialogIndirect(&config, null_mut(), null_mut(), null_mut()) < 0 {
+        let module = windows_sys::Win32::System::LibraryLoader::GetModuleHandleW(
+            wide("comctl32.dll").as_ptr(),
+        );
+        let function = windows_sys::Win32::System::LibraryLoader::GetProcAddress(
+            module,
+            c"TaskDialogIndirect".as_ptr().cast(),
+        );
+        let result = if let Some(function) = function {
+            let show: unsafe extern "system" fn(
+                *const TASKDIALOGCONFIG,
+                *mut i32,
+                *mut i32,
+                *mut i32,
+            ) -> i32 = std::mem::transmute(function);
+            show(&config, null_mut(), null_mut(), null_mut())
+        } else {
+            -1
+        };
+        if result < 0 {
             MessageBoxW(
                 owner,
                 content.as_ptr(),

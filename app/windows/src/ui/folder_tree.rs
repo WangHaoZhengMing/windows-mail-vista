@@ -2,7 +2,7 @@
 use crate::{
     account::{AccountId, AccountRecord},
     app::{DataScope, Folder, FolderSelection},
-    platform::strings::wide,
+    platform::{icons::TreeIcon, strings::wide},
 };
 use mail_core::network::{ImapFolder, ImapFolderRole};
 use std::collections::HashMap;
@@ -211,7 +211,7 @@ unsafe fn add_item(
 ) -> HTREEITEM {
     unsafe {
         let title = wide(label);
-        let image = tree_icon(folder, parent == TVI_ROOT, &scope);
+        let image = tree_icon(folder, parent == TVI_ROOT, &scope) as i32;
         let item = TVITEMW {
             mask: TVIF_TEXT | TVIF_PARAM | TVIF_IMAGE | TVIF_SELECTEDIMAGE,
             pszText: title.as_ptr().cast_mut(),
@@ -236,22 +236,22 @@ unsafe fn add_item(
     }
 }
 
-/// Row-major indices in the dedicated folder-tree atlas.
-pub(super) fn tree_icon(folder: Folder, root: bool, scope: &DataScope) -> i32 {
+/// Select a named asset from the folder's role.
+pub(super) fn tree_icon(folder: Folder, root: bool, scope: &DataScope) -> TreeIcon {
     if root {
         return if matches!(scope, DataScope::Local) {
-            1
+            TreeIcon::Local
         } else {
-            0
+            TreeIcon::Account
         };
     }
     match folder {
-        Folder::Inbox => 2,
-        Folder::Outbox => 3,
-        Folder::Sent => 4,
-        Folder::Drafts => 5,
-        Folder::Trash => 6,
-        Folder::Junk => 7,
-        Folder::All | Folder::Recovered => 8,
+        Folder::Inbox => TreeIcon::Inbox,
+        Folder::Outbox => TreeIcon::Outbox,
+        Folder::Sent => TreeIcon::Sent,
+        Folder::Drafts => TreeIcon::Drafts,
+        Folder::Trash => TreeIcon::Trash,
+        Folder::Junk => TreeIcon::Junk,
+        Folder::All | Folder::Recovered => TreeIcon::Archive,
     }
 }

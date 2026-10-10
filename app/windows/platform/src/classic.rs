@@ -1,6 +1,6 @@
-//! Classic Windows Mail controls and assets extracted from the local resource DLL.
+//! Classic Windows Mail control creation and painting.
 use super::controls::control;
-pub use super::icons::IconSet;
+use super::icons::{IconSet, ToolbarIcon};
 use super::{dpi, icons, strings::wide};
 use windows_sys::Win32::{
     Foundation::*,
@@ -10,63 +10,6 @@ use windows_sys::Win32::{
 
 pub const TOOLBAR: i32 = 2101;
 
-/// Meaningful names for the preserved cell order in the toolbar atlas.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(i32)]
-pub enum ToolbarIcon {
-    Contacts = 0,
-    Find = 3,
-    Forward = 4,
-    Delete = 5,
-    SendReceive = 9,
-    Send = 10,
-    NewMessage = 22,
-    Print = 29,
-    Reply = 32,
-    ReplyAll = 33,
-    Save = 35,
-    Cut = 43,
-    Copy = 44,
-    Paste = 45,
-    Attach = 49,
-}
-/// Names for the folder atlas cells used by the tree and message list.
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
-#[repr(i32)]
-pub enum FolderIcon {
-    UnreadMessage = 9,
-    ReadMessage = 10,
-    Folder = 11,
-}
-/// Create an owned application icon; release the result with `DestroyIcon`.
-///
-/// # Safety
-/// Call on the UI thread with a positive requested pixel size.
-pub unsafe fn icon(size: i32) -> HICON {
-    let bytes = include_bytes!("../../../../assets/windows/icons/app.ico");
-    let count = u16::from_le_bytes(bytes[4..6].try_into().unwrap()) as usize;
-    let record = (0..count)
-        .map(|i| 6 + i * 16)
-        .min_by_key(|&i| {
-            let width = if bytes[i] == 0 { 256 } else { bytes[i] as i32 };
-            let depth = u16::from_le_bytes(bytes[i + 6..i + 8].try_into().unwrap());
-            (width < size, (width - size).abs(), std::cmp::Reverse(depth))
-        })
-        .unwrap();
-    let length = u32::from_le_bytes(bytes[record + 8..record + 12].try_into().unwrap()) as usize;
-    let offset = u32::from_le_bytes(bytes[record + 12..record + 16].try_into().unwrap()) as usize;
-    unsafe {
-        CreateIconFromResourceEx(
-            bytes[offset..offset + length].as_ptr(),
-            length as u32,
-            1,
-            0x30000,
-            size,
-            size,
-            LR_DEFAULTCOLOR,
-        )
-    }
-}
 /// Initialize the common control classes used by the application's windows.
 ///
 /// # Safety
@@ -79,14 +22,6 @@ pub unsafe fn init() {
         });
     }
 }
-/// Create an owned image list; release it with `ImageList_Destroy` after use.
-///
-/// # Safety
-/// Call on the UI thread with the target window's DPI.
-pub unsafe fn images(set: IconSet, dpi: u32) -> HIMAGELIST {
-    let logical_size = if set == IconSet::Toolbar { 20 } else { 16 };
-    unsafe { icons::images(set, dpi::scale(logical_size, dpi)) }
-}
 /// Replace a toolbar's image list and return the newly owned list.
 /// The caller retains responsibility for releasing the previous list.
 ///
@@ -97,7 +32,7 @@ pub unsafe fn resize_toolbar(bar: HWND, dpi: u32) -> HIMAGELIST {
     unsafe {
         let size = dpi::scale(20, dpi);
         let button = dpi::scale(28, dpi);
-        let icons = images(IconSet::Toolbar, dpi);
+        let icons = icons::images_for_dpi(IconSet::Toolbar, dpi);
         SendMessageW(bar, TB_SETIMAGELIST, 0, icons);
         SendMessageW(bar, TB_SETBITMAPSIZE, 0, (size | (size << 16)) as isize);
         SendMessageW(bar, TB_SETBUTTONSIZE, 0, (button | (button << 16)) as isize);
@@ -136,7 +71,7 @@ pub unsafe fn toolbar(
         let toolbar_dpi = dpi::window_dpi(owner);
         let size = dpi::scale(20, toolbar_dpi);
         SendMessageW(bar, TB_SETBITMAPSIZE, 0, (size | (size << 16)) as isize);
-        let icons = images(IconSet::Toolbar, toolbar_dpi);
+        let icons = icons::images_for_dpi(IconSet::Toolbar, toolbar_dpi);
         SendMessageW(bar, TB_SETIMAGELIST, 0, icons as isize);
         for (label, id, image, enabled) in entries {
             let text = wide(&format!("{label}\0"));

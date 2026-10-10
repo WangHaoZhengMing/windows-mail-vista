@@ -680,6 +680,8 @@ dependencies = [
  "mail_app",
  "mail_core",
  "mail_windows_platform",
+ "serde",
+ "serde_json",
  "windows-sys",
 ]
 
