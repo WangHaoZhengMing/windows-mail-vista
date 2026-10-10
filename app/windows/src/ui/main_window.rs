@@ -285,7 +285,10 @@ impl MainWindow {
         Self {
             app,
             controls: MainWindowControls::default(),
-            layout: WindowLayout::default(),
+            layout: {
+                let preferences = account_window::settings::Preferences::load();
+                WindowLayout { show_folders: preferences.folders, show_preview: preferences.preview, ..WindowLayout::default() }
+            },
             metrics: dpi::Resources::default(),
             icons: Vec::new(),
             updating,
@@ -1460,12 +1463,7 @@ impl MainWindow {
                 SetFocus(self.controls.search);
             },
             Command::About => unsafe {
-                MessageBoxW(
-                    hwnd,
-                    wide("Windows Mail\nRust mail runtime 0.1.0").as_ptr(),
-                    wide("About Windows Mail").as_ptr(),
-                    MB_OK,
-                );
+                super::about::show(hwnd);
             },
             Command::Exit => unsafe {
                 PostMessageW(hwnd, WM_CLOSE, 0, 0);
@@ -1654,8 +1652,20 @@ impl MainWindow {
 
 impl MainWindow {
     pub(super) fn on_event(&mut self, event: WindowEvent) {
+        if matches!(event, WindowEvent::Settings) {
+            unsafe { account_window::settings::open(self.controls.main); }
+            return;
+        }
+        if matches!(event, WindowEvent::SettingsChanged) {
+            let preferences = account_window::settings::Preferences::load();
+            self.layout.show_folders = preferences.folders;
+            self.layout.show_preview = preferences.preview;
+            self.relayout();
+            return;
+        }
         let hwnd = self.controls.main;
         match event {
+            WindowEvent::Settings | WindowEvent::SettingsChanged => unreachable!(),
             WindowEvent::Create(hwnd) => unsafe {
                 self.setup(hwnd);
             },

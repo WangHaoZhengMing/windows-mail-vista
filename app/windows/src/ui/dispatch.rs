@@ -40,6 +40,8 @@ pub(super) enum WindowEvent {
         composer: Option<HWND>,
     },
     Refresh,
+    Settings,
+    SettingsChanged,
     FolderSelected(usize),
     MessageSelected,
     MessageActivated(usize),
@@ -168,6 +170,7 @@ pub(super) unsafe extern "system" fn window_proc(
         // SAFETY: run() owns the boxed host until all window callbacks finish.
         let host = &*pointer;
         let event = match msg {
+            super::account_window::settings::CHANGED => WindowEvent::SettingsChanged,
             WM_CREATE => WindowEvent::Create(hwnd),
             WM_SIZE => WindowEvent::Resize {
                 width: (lp as u32 & 0xffff) as i32,
@@ -185,7 +188,9 @@ pub(super) unsafe extern "system" fn window_proc(
             WM_COMMAND | DISPATCH => {
                 let id = (wp & 0xffff) as u16;
                 let notification = (wp >> 16) as u16;
-                if (id == command_ids::SEARCH && notification == EN_CHANGE as u16)
+                if id == super::menus::SETTINGS as u16 {
+                    WindowEvent::Settings
+                } else if (id == command_ids::SEARCH && notification == EN_CHANGE as u16)
                     || (id == command_ids::FILTER && notification == CBN_SELCHANGE as u16)
                 {
                     WindowEvent::Refresh

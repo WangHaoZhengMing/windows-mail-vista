@@ -9,6 +9,7 @@ pub(crate) const PASTE: usize = 172;
 pub(crate) const SELECT_ALL: usize = 173;
 pub(crate) const TOGGLE_BCC: usize = 174;
 pub(crate) const PLAIN_TEXT: usize = 175;
+pub(crate) const SETTINGS: usize = 184;
 const RICH_TEXT: usize = 176;
 const SPELLING: usize = 177;
 
@@ -55,6 +56,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                     "&Tools",
                     vec![
                         ("Accounts...", id(Command::ConfigureAccount), true),
+                        ("Settings...", SETTINGS, true),
                         ("Spelling", SPELLING, false),
                     ],
                 ),
@@ -107,6 +109,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                     vec![
                         ("Send/Receive\tCtrl+M", id(Command::Receive), true),
                         ("Accounts...", id(Command::ConfigureAccount), true),
+                        ("Settings...", SETTINGS, true),
                     ],
                 ),
                 (

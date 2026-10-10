@@ -1,0 +1,44 @@
+//! Native About dialog with the application identity and build version.
+use crate::platform::{classic, dpi, strings::wide};
+use std::ptr::null_mut;
+use windows_sys::Win32::{
+    Foundation::HWND,
+    UI::{Controls::*, WindowsAndMessaging::*},
+};
+
+pub(super) unsafe fn show(owner: HWND) {
+    unsafe {
+        let title = wide("About Windows Mail");
+        let heading = wide("Windows Mail");
+        let content = wide(&format!(
+            "Version {}\n\nA desktop email client with a classic Windows interface.\n\nRead and organize mail, manage multiple accounts, and compose messages with attachments. Supports IMAP, POP3 and SMTP.\n\nBuilt with Rust.",
+            env!("CARGO_PKG_VERSION")
+        ));
+        let footer = wide("An independent project inspired by classic Windows Mail.");
+        let icon = classic::icon(dpi::scale(48, dpi::window_dpi(owner)));
+        let config = TASKDIALOGCONFIG {
+            cbSize: std::mem::size_of::<TASKDIALOGCONFIG>() as u32,
+            hwndParent: owner,
+            dwFlags: TDF_USE_HICON_MAIN | TDF_POSITION_RELATIVE_TO_WINDOW | TDF_SIZE_TO_CONTENT,
+            dwCommonButtons: TDCBF_OK_BUTTON,
+            pszWindowTitle: title.as_ptr(),
+            Anonymous1: TASKDIALOGCONFIG_0 { hMainIcon: icon },
+            pszMainInstruction: heading.as_ptr(),
+            pszContent: content.as_ptr(),
+            pszFooter: footer.as_ptr(),
+            cxWidth: 320,
+            ..std::mem::zeroed()
+        };
+        if TaskDialogIndirect(&config, null_mut(), null_mut(), null_mut()) < 0 {
+            MessageBoxW(
+                owner,
+                content.as_ptr(),
+                title.as_ptr(),
+                MB_OK | MB_ICONINFORMATION,
+            );
+        }
+        if !icon.is_null() {
+            DestroyIcon(icon);
+        }
+    }
+}

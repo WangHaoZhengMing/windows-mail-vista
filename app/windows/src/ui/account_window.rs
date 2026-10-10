@@ -79,6 +79,7 @@ mod form;
 mod manager;
 mod oauth;
 mod properties;
+pub(super) mod settings;
 #[cfg(test)]
 mod tests;
 

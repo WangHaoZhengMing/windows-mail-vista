@@ -1,4 +1,5 @@
 //! Native window adapters. Business state and mail operations live in `app`.
+mod about;
 mod account_window;
 mod command_ids;
 mod compose_window;
