@@ -7,11 +7,11 @@
 #let pale = rgb("EDF4FA")
 #let edge = rgb("C7D4DF")
 #let muted = rgb("617488")
-#set document(title: "Windows Mail · 项目说明", author: "Windows Mail project")
+#set document(title: "Windows Mail Vista · 项目说明", author: "Windows Mail Vista project")
 #set page(
   paper: "a4",
   margin: (x: 20mm, top: 18mm, bottom: 18mm),
-  header: context { if counter(page).get().first() > 1 { text(8pt, fill: muted)[Windows Mail / 项目说明] } },
+  header: context { if counter(page).get().first() > 1 { text(8pt, fill: muted)[Windows Mail Vista / 项目说明] } },
   footer: context align(right, text(8pt, fill: muted)[#counter(page).display("1")]),
 )
 #set text(font: ("Microsoft YaHei", "Segoe UI"), size: 9.5pt, fill: ink, lang: "zh")
@@ -67,7 +67,7 @@
 }
 
 #let mail-ui() = canvas({
-  window-frame("Windows Mail", 8.3)
+  window-frame("Windows Mail Vista", 8.3)
   ui-label(0.2, 7.62, "File     Edit     View     Tools     Message     Help")
   panel(0, 6.98, 16, 0.44, color: blue, border: blue)
   for (x, label) in (
@@ -107,7 +107,7 @@
   ui-label(14.15, 6.76, "Received")
   for (i, row) in (
     ("Service updates", "Scheduled maintenance", "10 Oct"),
-    ("Example team", "Welcome to Windows Mail", "08 Oct"),
+    ("Example team", "Welcome to Windows Mail Vista", "08 Oct"),
     ("Project notes", "Your weekly summary", "07 Oct"),
     ("Travel desk", "Booking confirmation", "28 Sep"),
     ("Alex", "Re: Meeting notes", "25 Sep"),
@@ -122,7 +122,7 @@
   }
   panel(3.88, 3.0, 12.12, 0.4, color: rgb("F0F2F4"))
   ui-label(4.06, 3.2, "From: Example team    To: demo@example.com", size: 7pt)
-  ui-label(4.08, 2.62, "Welcome to Windows Mail", size: 10pt, color: blue, weight: "bold")
+  ui-label(4.08, 2.62, "Welcome to Windows Mail Vista", size: 10pt, color: blue, weight: "bold")
   ui-label(4.08, 2.18, "This is the reading pane. Select a message to read its content.", size: 7.5pt)
   ui-label(4.08, 1.79, "HTML and attachments are available in the message window.", size: 7.5pt)
   panel(0, 0, 16, 0.36, color: rgb("F0F2F4"))
@@ -131,7 +131,7 @@
 })
 
 #let settings-ui() = canvas({
-  window-frame("Settings - Windows Mail", 6.8)
+  window-frame("Settings - Windows Mail Vista", 6.8)
   panel(0, 0.65, 4.2, 5.71, color: pale, border: pale)
   panel(0.25, 5.35, 3.65, 0.62, color: rgb("CBE2F5"), border: rgb("CBE2F5"))
   panel(0.25, 5.35, 0.06, 0.62, color: blue, border: blue)
@@ -154,7 +154,7 @@
 })
 
 #let wizard-ui() = canvas({
-  window-frame("New Account Wizard - Windows Mail", 7.0)
+  window-frame("New Account Wizard - Windows Mail Vista", 7.0)
   panel(0, 5.16, 16, 1.4, color: pale, border: pale)
   envelope(0.55, 5.8, color: blue)
   ui-label(1.1, 6.02, "Choose your email service", size: 11pt, weight: "bold", color: blue)
@@ -183,7 +183,7 @@
 
 #text(9pt, fill: muted, tracking: 1.5pt)[RUST DESKTOP MAIL CLIENT]
 #v(5pt)
-#text(32pt, fill: blue, weight: "bold")[Windows Mail]
+#text(32pt, fill: blue, weight: "bold")[Windows Mail Vista]
 #v(4pt)
 #text(12pt, fill: muted)[项目说明 · 使用指南 · 开发入口]
 #v(12pt)

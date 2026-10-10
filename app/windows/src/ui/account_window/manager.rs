@@ -304,7 +304,7 @@ pub(crate) unsafe fn open(
         let window = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
-            wide("Accounts - Windows Mail").as_ptr(),
+            wide("Accounts - Windows Mail Vista").as_ptr(),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

@@ -22,11 +22,44 @@ pub fn embed(binary: &str) {
     let out = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
     let rc = out.join("mail-icon.rc");
     let res = out.join("mail-icon.res");
+    let version = std::env::var("CARGO_PKG_VERSION").unwrap();
+    let mut numbers = version
+        .split('.')
+        .map(|part| part.parse::<u16>().unwrap_or(0));
+    let numeric = format!(
+        "{},{},{},0",
+        numbers.next().unwrap_or(0),
+        numbers.next().unwrap_or(0),
+        numbers.next().unwrap_or(0)
+    );
+    let icon = root.join(ICON).to_string_lossy().replace('\\', "/");
     std::fs::write(
         &rc,
         format!(
-            "1 ICON \"{}\"\n",
-            root.join(ICON).to_string_lossy().replace('\\', "/")
+            r#"1 ICON "{icon}"
+1 VERSIONINFO
+FILEVERSION {numeric}
+PRODUCTVERSION {numeric}
+FILEOS 0x40004
+FILETYPE 1
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "FileDescription", "Windows Mail Vista\0"
+            VALUE "ProductName", "Windows Mail Vista\0"
+            VALUE "FileVersion", "{version}\0"
+            VALUE "ProductVersion", "{version}\0"
+            VALUE "OriginalFilename", "{binary}.exe\0"
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x409, 1200
+    END
+END
+"#
         ),
     )
     .unwrap();

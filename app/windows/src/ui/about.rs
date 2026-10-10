@@ -48,7 +48,7 @@ pub(super) unsafe fn show(owner: HWND) {
         let window = CreateWindowExW(
             WS_EX_DLGMODALFRAME,
             class.as_ptr(),
-            wide("About Windows Mail").as_ptr(),
+            wide("About Windows Mail Vista").as_ptr(),
             style,
             parent.left + (parent.right - parent.left - width) / 2,
             parent.top + (parent.bottom - parent.top - height) / 2,
@@ -201,16 +201,16 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                 label(
                     dc,
                     value,
-                    "Windows Mail",
-                    [124, 24, 400, 48],
-                    28,
+                    "Windows Mail Vista",
+                    [124, 24, 420, 48],
+                    24,
                     0x00ffffff,
                 );
                 label(
                     dc,
                     value,
                     &format!(
-                        "Windows Mail\nVersion {} · Rust desktop client",
+                        "Windows Mail Vista\nVersion {} · Rust desktop client",
                         env!("CARGO_PKG_VERSION")
                     ),
                     [58, 114, 448, 52],

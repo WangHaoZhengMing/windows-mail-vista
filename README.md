@@ -1,8 +1,8 @@
-# Windows Mail
+# Windows Mail Vista
 
 排版文档见 [README.typ](README.typ)。其中的主窗口、设置页和账户向导使用 CeTZ 直接绘制，不依赖截图。执行 `typst compile README.typ output/pdf/README.pdf` 可生成 PDF。
 
-一个使用 Rust 编写的 Windows 桌面邮件客户端。主界面保留经典 Windows Mail 的菜单、蓝色工具栏和文件夹布局，设置与账户配置使用独立窗口。
+Windows Mail Vista 是一个使用 Rust 编写的 Windows 桌面邮件客户端。主界面保留经典 Windows Mail 的菜单、蓝色工具栏和文件夹布局，设置与账户配置使用独立窗口。
 
 目前可运行的平台是 **Windows x64**。macOS 和 Linux 仅有预留入口与适配目录，尚不能作为完整客户端使用。本项目是独立实现，并未完整复刻旧 Windows Mail 的所有功能和接口。
 

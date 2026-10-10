@@ -51,7 +51,7 @@ pub unsafe extern "system" fn CoStartOutlookExpressW(
                 windows_sys::Win32::UI::WindowsAndMessaging::MessageBoxW(
                     null_mut(),
                     mail_windows_platform::strings::wide(&e).as_ptr(),
-                    mail_windows_platform::strings::wide("Windows Mail").as_ptr(),
+                    mail_windows_platform::strings::wide("Windows Mail Vista").as_ptr(),
                     windows_sys::Win32::UI::WindowsAndMessaging::MB_ICONERROR,
                 );
             }

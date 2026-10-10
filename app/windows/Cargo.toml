@@ -3,7 +3,7 @@ name = "mail_windows"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
-description = "Windows Mail desktop application, native UI and startup"
+description.workspace = true
 
 [[bin]]
 name = "WinMail"

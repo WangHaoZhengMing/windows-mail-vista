@@ -197,7 +197,7 @@ pub fn run(command: &str, show: i32) -> Result<()> {
         let hwnd = CreateWindowExW(
             0,
             name.as_ptr(),
-            wide("Local Folders - Windows Mail").as_ptr(),
+            wide("Local Folders - Windows Mail Vista").as_ptr(),
             WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
             CW_USEDEFAULT,
             CW_USEDEFAULT,
@@ -830,7 +830,7 @@ impl MainWindow {
             MessageBoxW(
                 self.controls.main,
                 wide(prompt).as_ptr(),
-                wide("Windows Mail").as_ptr(),
+                wide("Windows Mail Vista").as_ptr(),
                 MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2,
             ) == IDYES
         }
@@ -1031,7 +1031,7 @@ impl MainWindow {
             let location = self.location();
             SetWindowTextW(
                 self.controls.main,
-                wide(&format!("{location} - Windows Mail")).as_ptr(),
+                wide(&format!("{location} - Windows Mail Vista")).as_ptr(),
             );
 
             self.updating.set(false);
@@ -1912,7 +1912,7 @@ impl MainWindow {
                         MessageBoxW(
                             hwnd,
                             wide(&error).as_ptr(),
-                            wide("Windows Mail · Rust").as_ptr(),
+                            wide("Windows Mail Vista").as_ptr(),
                             MB_ICONERROR,
                         );
                     }
@@ -2025,7 +2025,7 @@ impl MainWindow {
                             hwnd,
                             wide("Wait for the active mail operation to finish before closing.")
                                 .as_ptr(),
-                            wide("Windows Mail").as_ptr(),
+                            wide("Windows Mail Vista").as_ptr(),
                             MB_OK,
                         );
                     }

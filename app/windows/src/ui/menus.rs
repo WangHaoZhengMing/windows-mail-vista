@@ -63,7 +63,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                 ("&Message", vec![("Send", id(Command::Send), true)]),
                 (
                     "&Help",
-                    vec![("About Windows Mail", id(Command::About), true)],
+                    vec![("About Windows Mail Vista", id(Command::About), true)],
                 ),
             ]
         } else {
@@ -124,7 +124,7 @@ pub(crate) unsafe fn menu(composer: bool) -> HMENU {
                 ),
                 (
                     "&Help",
-                    vec![("About Windows Mail", id(Command::About), true)],
+                    vec![("About Windows Mail Vista", id(Command::About), true)],
                 ),
             ]
         };

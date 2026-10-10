@@ -115,9 +115,9 @@ impl Window {
             };
             RegisterClassW(&wc);
             let title = if state.message.summary.subject.is_empty() {
-                "Message - Windows Mail".to_owned()
+                "Message - Windows Mail Vista".to_owned()
             } else {
-                format!("{} - Windows Mail", state.message.summary.subject)
+                format!("{} - Windows Mail Vista", state.message.summary.subject)
             };
             let menu = menus::reader_menu(&state.message);
             let hwnd = CreateWindowExW(

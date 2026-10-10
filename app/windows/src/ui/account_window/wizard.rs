@@ -272,7 +272,7 @@ pub(super) unsafe fn open(manager: HWND) {
         let window = CreateWindowExW(
             WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME,
             class.as_ptr(),
-            wide("New Account Wizard — Windows Mail").as_ptr(),
+            wide("New Account Wizard — Windows Mail Vista").as_ptr(),
             WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
             CW_USEDEFAULT,
             CW_USEDEFAULT,

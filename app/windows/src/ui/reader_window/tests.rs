@@ -120,7 +120,7 @@ fn reader_is_read_only_routes_its_identity_and_scales_at_high_dpi() {
     let hwnd = window.hwnd();
     assert_eq!(window.id(), &id);
     unsafe {
-        assert_eq!(window_text(hwnd), "Independent reader - Windows Mail");
+        assert_eq!(window_text(hwnd), "Independent reader - Windows Mail Vista");
         assert_eq!(
             window_text(GetDlgItem(hwnd, SUBJECT as i32)),
             "Independent reader"
