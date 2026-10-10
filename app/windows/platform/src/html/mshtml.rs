@@ -356,7 +356,7 @@ unsafe extern "system" fn window_proc(
             (*(create.lpCreateParams as *const State))
                 .window_attached
                 .set(true);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as _);
         }
         let raw = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const State;
         if !raw.is_null() {

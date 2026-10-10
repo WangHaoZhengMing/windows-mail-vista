@@ -80,7 +80,7 @@ pub(super) unsafe fn show(owner: HWND) {
             resources: dpi::Resources::default(),
             button,
         });
-        SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(state) as isize);
+        SetWindowLongPtrW(window, GWLP_USERDATA, Box::into_raw(state) as _);
         update(window, value);
         ShowWindow(window, SW_SHOW);
         SetFocus(button);

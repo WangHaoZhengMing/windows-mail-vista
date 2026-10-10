@@ -107,6 +107,42 @@ fn reentrant_events_own_payloads_and_account_saves_reply_synchronously() {
             assert_eq!(window.app.account().unwrap().email, "dispatch@example.com")
         });
 
+        // External compose requests use the existing main window and report real UI outcomes.
+        let eml = root.join("shell opened message.eml");
+        std::fs::write(&eml, b"From: sender@example.com\r\nTo: dispatch@example.com\r\nSubject: Shell opened\r\n\r\nHello").unwrap();
+        host.with_window(|window| {
+            window.apply(&format!("\"{}\"", eml.display()));
+            assert_eq!(window.readers.len(), 1);
+            assert!(window.readers[0].active());
+            window.readers[0].close();
+        });
+        for sent in [false, true] {
+            let request = crate::mapi_bridge::Request::create(Draft {
+                to: "external@example.com".into(),
+                subject: "External draft".into(),
+                ..Default::default()
+            })
+            .unwrap();
+            host.with_window(|window| {
+                window.apply(&format!("\"/mapi-request:{}\"", request.path().display()));
+                assert_eq!(window.composer().unwrap().draft().subject, "External draft");
+                assert_eq!(request.result(), None);
+                if sent {
+                    window.mail_completed(MailCompletion::Sent {
+                        account: window.app.default_account_id().unwrap().clone(),
+                        composer: window.active_composer.unwrap(),
+                        local_update: Ok(()),
+                    });
+                } else {
+                    window.composer().unwrap().set_sending(true);
+                    assert!(window.close_composer().is_err());
+                    window.composer().unwrap().set_sending(false);
+                    window.close_composer().unwrap();
+                }
+            });
+            assert_eq!(request.result(), Some(if sent { 0 } else { 1 }));
+        }
+
         // Destruction cancels queued UI work instead of accessing dead controls.
         host.with_window(|window| {
             SendMessageW(

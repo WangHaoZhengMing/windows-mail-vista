@@ -51,6 +51,8 @@ struct ComposeState {
     show_bcc: Cell<bool>,
     loading: Cell<bool>,
     icons: HIMAGELIST,
+    external: RefCell<Option<crate::mapi_bridge::Completion>>,
+    sending: Cell<bool>,
 }
 pub struct Window {
     state: Box<ComposeState>,
@@ -90,6 +92,8 @@ impl Window {
                 show_bcc: Cell::new(false),
                 loading: Cell::new(true),
                 icons: 0,
+                external: RefCell::new(None),
+                sending: Cell::new(false),
             });
             let class = wide("WinMailRust.Compose");
             let wc = WNDCLASSW {
@@ -139,6 +143,21 @@ impl Window {
     }
     pub fn hwnd(&self) -> HWND {
         self.state.hwnd
+    }
+    pub fn external_request(&self, completion: crate::mapi_bridge::Completion) {
+        completion.ready();
+        *self.state.external.borrow_mut() = Some(completion);
+    }
+    pub fn sent(&self) {
+        if let Some(mut completion) = self.state.external.borrow_mut().take() {
+            completion.finish(0);
+        }
+    }
+    pub fn sending(&self) -> bool {
+        self.state.sending.get()
+    }
+    pub fn set_sending(&self, sending: bool) {
+        self.state.sending.set(sending);
     }
     pub fn sender_id(&self) -> Option<AccountId> {
         let index = unsafe { SendMessageW(self.state.sender, CB_GETCURSEL, 0, 0) };
@@ -484,7 +503,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
             SetWindowLongPtrW(
                 hwnd,
                 GWLP_USERDATA,
-                (*(lp as *const CREATESTRUCTW)).lpCreateParams as isize,
+                (*(lp as *const CREATESTRUCTW)).lpCreateParams as _,
             );
         }
         if msg == WM_NOTIFY && !lp.eq(&0) {
@@ -607,6 +626,7 @@ unsafe extern "system" fn proc(hwnd: HWND, msg: u32, wp: usize, lp: isize) -> is
                 0
             }
             WM_DESTROY => {
+                state.external.borrow_mut().take();
                 SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
                 0
             }

@@ -15,3 +15,4 @@ EXPORTS
     MAPISaveMail @51
     MAPISendMail @53
     CoShutdownOutlookExpress
+    MAPISendMailW

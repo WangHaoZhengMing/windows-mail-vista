@@ -96,7 +96,7 @@ impl WindowLayout {
             SetWindowLongPtrW(
                 controls.toolbar,
                 GWL_STYLE,
-                GetWindowLongPtrW(controls.toolbar, GWL_STYLE) | WS_CLIPSIBLINGS as isize,
+                (GetWindowLongPtrW(controls.toolbar, GWL_STYLE) as u32 | WS_CLIPSIBLINGS) as _,
             );
             let left = if self.show_folders {
                 self.sidebar.clamp(120, (width / 2).max(120))

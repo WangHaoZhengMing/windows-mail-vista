@@ -63,7 +63,7 @@ unsafe extern "system" fn parent_proc(window: HWND, msg: u32, wp: usize, lp: isi
             SetWindowLongPtrW(
                 window,
                 GWLP_USERDATA,
-                (*(lp as *const CREATESTRUCTW)).lpCreateParams as isize,
+                (*(lp as *const CREATESTRUCTW)).lpCreateParams as _,
             );
             return 1;
         }

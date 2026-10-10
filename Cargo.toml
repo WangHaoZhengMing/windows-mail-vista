@@ -18,7 +18,7 @@ resolver = "3"
 [workspace.package]
 repository = "https://github.com/WangHaoZhengMing/windows-mail-vista"
 description = "Windows Mail Vista — a native Rust desktop email client inspired by classic Windows Mail"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2024"
 rust-version = "1.88"
 

@@ -16,6 +16,11 @@ pub mod startup;
 #[cfg(windows)]
 pub mod ui;
 
+#[cfg(windows)]
+pub mod integration;
+#[cfg(windows)]
+pub mod mapi_bridge;
+
 /// Instance and window-class names shared by the launcher and UI.
 #[cfg(windows)]
 pub fn instance_names_for(key: &str) -> (String, String) {

@@ -296,7 +296,7 @@ pub(super) unsafe fn open(manager: HWND) {
             manager::error(manager, "Could not open the account wizard.");
             return;
         }
-        SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *state as *mut Wizard) as isize);
+        SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *state as *mut Wizard) as _);
         state.build(window);
         let _ = Box::into_raw(state);
         (*host).property.set(window);

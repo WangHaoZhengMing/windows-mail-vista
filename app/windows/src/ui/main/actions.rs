@@ -132,6 +132,9 @@ impl MainWindow {
     }
     pub(super) fn close_composer(&mut self) -> Result<()> {
         if let Ok(window) = self.composer() {
+            if window.sending() {
+                return Err("Wait for the message send operation to finish before closing".into());
+            }
             let draft = window.dirty().then(|| window.draft());
             if let Some(draft) = draft {
                 let account = self.composer()?.sender_id();
@@ -145,10 +148,36 @@ impl MainWindow {
     pub(super) fn apply(&mut self, command: &str) {
         for word in command_words(command) {
             let result = (|| -> Result<()> {
+                if word.to_ascii_lowercase().starts_with("/mapi-request:") {
+                    let (draft, completion) =
+                        crate::mapi_bridge::Completion::load(std::path::Path::new(&word[14..]))?;
+                    let window = compose::Window::open_for(
+                        self.controls.main,
+                        draft,
+                        self.app.accounts().to_vec(),
+                        self.app.default_account_id().cloned(),
+                    )?;
+                    window.external_request(completion);
+                    self.active_composer = Some(ComposerId::new(self.composers.len()));
+                    self.composers.push(window);
+                    return Ok(());
+                }
                 match LaunchAction::parse(&word)? {
                     LaunchAction::Ignore => {}
                     LaunchAction::Compose(draft) => self.new_message(draft),
                     LaunchAction::Import(path) => {
+                        if path.is_file()
+                            && path
+                                .extension()
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("eml"))
+                        {
+                            let id = self.app.import_message_file(&path)?;
+                            self.app.set_scope(DataScope::Local)?;
+                            self.app.set_folder(Folder::Inbox);
+                            self.rebuild_folders();
+                            self.open_message(id)?;
+                            return Ok(());
+                        }
                         let count = self.app.import_path(&path)?;
                         self.app.set_scope(DataScope::Local)?;
                         self.app.set_folder(Folder::Inbox);
@@ -255,6 +284,7 @@ impl MainWindow {
                         draft,
                         self.active_composer.ok_or("Choose Create Mail first")?,
                     )?;
+                    self.composer()?.set_sending(true);
                     self.refresh();
                     self.status("Sending mail…");
                 } else {

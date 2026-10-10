@@ -13,20 +13,22 @@ Windows Mail Vista 是一个使用 Rust 编写的 Windows 桌面邮件客户端�
 GitHub Actions 配置位于 [windows-release.yml](.github/workflows/windows-release.yml)。
 
 - 推送到 `main` 或提交 Pull Request：编译 Windows x64 版本，上传保留 14 天的构建产物。
-- 推送版本标签（例如 `v0.1.0`）：测试、编译后自动创建 GitHub Release，附带便携 ZIP 和 SHA-256 校验文件。
+- 推送版本标签（例如 `v0.1.2`）：测试、编译后自动创建 GitHub Release，附带MSI 安装程序 和 SHA-256 校验文件。
 - Actions → Windows build and release → Run workflow：不填 tag 时只构建；填已有版本标签可重新运行发布。
 
 标签必须与根 `Cargo.toml` 的版本一致。发布新版本时先更新版本并提交，再执行：
 
 ```powershell
-git tag v0.1.0
+git tag v0.1.2
 git push origin main
-git push origin v0.1.0
+git push origin v0.1.2
 ```
 
-下载 Release 压缩包，解压后运行 `WinMail.exe`。构建使用静态 C 运行库；可选 WebView 后端仍需系统安装 WebView2 Runtime。
+下载 Release 中的 `.msi`，双击安装后从开始菜单打开 Windows Mail Vista。安装程序支持升级、修复和卸载；卸载保留个人邮件数据。构建使用静态 C 运行库；可选 WebView 后端仍需系统安装 WebView2 Runtime。
 
 ## 快速开始
+
+默认邮件应用、`mailto:` / EML 文件关联与系统 Simple MAPI 安装见 [Windows 系统集成](app/windows/SYSTEM-INTEGRATION.md)。设置中的 **Accounts → Default mail app...** 可打开 Windows 默认应用选择页；支持 ANSI/Unicode 交互写信和 32/64 位适配 DLL。
 
 ### 构建环境
 

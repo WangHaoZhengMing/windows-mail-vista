@@ -369,7 +369,7 @@ unsafe extern "system" fn host_proc(hwnd: HWND, message: u32, wp: WPARAM, lp: LP
         if message == WM_NCCREATE {
             let create = &*(lp as *const CREATESTRUCTW);
             let weak = create.lpCreateParams as *mut Weak<Shared>;
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, weak as isize);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, weak as _);
             if let Some(shared) = (*weak).upgrade() {
                 shared.attached.set(true);
                 shared.host.set(hwnd);

@@ -183,6 +183,13 @@ impl AppState {
     pub fn import_path(&mut self, path: &Path) -> Result<usize> {
         self.store.import_tree(path)
     }
+    /// Import a single shell-opened message and return its stable reader identity.
+    pub fn import_message_file(&mut self, path: &Path) -> Result<MessageId> {
+        let raw = std::fs::read(path).map_err(|e| e.to_string())?;
+        self.store
+            .import(&raw, "Inbox", None)
+            .map(MessageId::from_stored)
+    }
 
     pub fn export_selected(&self, path: &Path) -> Result<()> {
         let id = self.selected_id().ok_or("Select a message first")?;

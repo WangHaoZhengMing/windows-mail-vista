@@ -160,6 +160,7 @@ impl MainWindow {
                 ..
             } => {
                 if let Some(window) = self.composers.get(composer.index()) {
+                    window.sent();
                     window.saved();
                     window.close();
                 }
@@ -172,6 +173,9 @@ impl MainWindow {
                 self.refresh();
             }
             MailCompletion::Failed(error) => {
+                for window in &self.composers {
+                    window.set_sending(false);
+                }
                 self.sync_continuation.clear();
                 self.refresh();
                 self.status(&error);
@@ -198,6 +202,9 @@ impl MainWindow {
                 }
             }
             MailCompletion::WorkerStopped => {
+                for window in &self.composers {
+                    window.set_sending(false);
+                }
                 self.sync_continuation.clear();
                 self.update_actions();
                 self.status("Mail worker stopped unexpectedly");

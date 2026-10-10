@@ -22,7 +22,7 @@ use windows_sys::Win32::{
 };
 
 type MResult<T> = std::result::Result<T, u32>;
-static SESSIONS: OnceLock<Mutex<HashMap<usize, Store>>> = OnceLock::new();
+static SESSIONS: OnceLock<Mutex<HashMap<usize, Option<Store>>>> = OnceLock::new();
 static NEXT: AtomicUsize = AtomicUsize::new(1);
 struct Allocation {
     temp: Option<std::path::PathBuf>,
@@ -56,7 +56,11 @@ fn with_store<T>(session: usize, f: impl FnOnce(&mut Store) -> MResult<T>) -> MR
             .get_or_init(Default::default)
             .lock()
             .map_err(|_| MAPI_E_FAILURE)?;
-        f(sessions.get_mut(&session).ok_or(MAPI_E_INVALID_SESSION)?)
+        let store = sessions.get_mut(&session).ok_or(MAPI_E_INVALID_SESSION)?;
+        if store.is_none() {
+            *store = Some(Store::open(&default_root()).map_err(|_| MAPI_E_MESSAGE_IN_USE)?);
+        }
+        f(store.as_mut().ok_or(MAPI_E_INVALID_SESSION)?)
     }
 }
 /// # Safety
@@ -231,7 +235,7 @@ pub unsafe extern "system" fn MAPILogon(
             .get_or_init(Default::default)
             .lock()
             .map_err(|_| MAPI_E_FAILURE)?
-            .insert(id, store);
+            .insert(id, Some(store));
         unsafe {
             *out = id;
         }
@@ -352,36 +356,139 @@ pub unsafe extern "system" fn MAPISendMail(
     _reserved: u32,
 ) -> u32 {
     guarded(|| {
-        // UI send dialogs require their own contract; don't silently send when asked for one.
-        if flags & MAPI_DIALOG != 0 {
-            return Err(MAPI_E_NOT_SUPPORTED);
-        }
         if flags & MAPI_FORCE_UNICODE != 0 {
             return Err(MAPI_E_UNICODE_NOT_SUPPORTED);
         }
         let draft = unsafe { draft_from(message)? };
-        with_store(session, |store| {
-            let mut account = store.account().cloned().ok_or(MAPI_E_LOGON_FAILURE)?;
-            if matches!(account.auth, mail_core::account::Authentication::OAuth2(_)) {
-                mail_core::oauth::access_token(&mut account).map_err(|_| MAPI_E_LOGON_FAILURE)?;
-                let account_id = store
-                    .default_account_id()
-                    .ok_or(MAPI_E_LOGON_FAILURE)?
-                    .clone();
-                store
-                    .update_account(&account_id, account.clone())
-                    .map_err(|_| MAPI_E_FAILURE)?;
-            }
-            let raw = draft
-                .build(&account.email)
-                .map_err(|_| MAPI_E_INVALID_MESSAGE)?;
-            let id = store
-                .import(&raw, "Outbox", None)
+        send_draft(session, _ui, draft, flags)
+    })
+}
+
+unsafe fn wide_input(pointer: *const u16) -> MResult<String> {
+    if pointer.is_null() {
+        return Ok(String::new());
+    }
+    let mut length = 0;
+    unsafe {
+        while length < crate::MAX_MESSAGE / 2 && *pointer.add(length) != 0 {
+            length += 1;
+        }
+        if length == crate::MAX_MESSAGE / 2 {
+            return Err(MAPI_E_INVALID_MESSAGE);
+        }
+        String::from_utf16(std::slice::from_raw_parts(pointer, length))
+            .map_err(|_| MAPI_E_INVALID_MESSAGE)
+    }
+}
+unsafe fn draft_from_w(pointer: *const MapiMessageW) -> MResult<Draft> {
+    if pointer.is_null() {
+        return Err(MAPI_E_INVALID_MESSAGE);
+    }
+    let mail = unsafe { &*pointer };
+    if mail.nRecipCount > 1000 || mail.nFileCount > 100 {
+        return Err(MAPI_E_TOO_MANY_RECIPIENTS);
+    }
+    if (mail.nRecipCount > 0 && mail.lpRecips.is_null())
+        || (mail.nFileCount > 0 && mail.lpFiles.is_null())
+    {
+        return Err(MAPI_E_INVALID_MESSAGE);
+    }
+    let mut draft = Draft {
+        subject: unsafe { wide_input(mail.lpszSubject)? },
+        body: unsafe { wide_input(mail.lpszNoteText)? },
+        ..Draft::default()
+    };
+    for i in 0..mail.nRecipCount as usize {
+        let recipient = unsafe { &*mail.lpRecips.add(i) };
+        let address = unsafe { wide_input(recipient.lpszAddress)? };
+        let address = if address.is_empty() {
+            unsafe { wide_input(recipient.lpszName)? }
+        } else {
+            address
+        };
+        let address = if address
+            .get(..5)
+            .is_some_and(|s| s.eq_ignore_ascii_case("SMTP:"))
+        {
+            &address[5..]
+        } else {
+            &address
+        };
+        message::addresses(address).map_err(|_| MAPI_E_UNKNOWN_RECIPIENT)?;
+        let field = match recipient.ulRecipClass {
+            MAPI_TO => &mut draft.to,
+            MAPI_CC => &mut draft.cc,
+            MAPI_BCC => &mut draft.bcc,
+            _ => return Err(MAPI_E_BAD_RECIPTYPE),
+        };
+        if !field.is_empty() {
+            field.push(',');
+        }
+        field.push_str(address);
+    }
+    for i in 0..mail.nFileCount as usize {
+        let file = unsafe { &*mail.lpFiles.add(i) };
+        draft
+            .attachments
+            .push(unsafe { wide_input(file.lpszPathName)? }.into());
+    }
+    Ok(draft)
+}
+
+/// # Safety
+/// The message and its arrays and UTF-16 strings must remain readable during the call.
+#[unsafe(no_mangle)]
+pub unsafe extern "system" fn MAPISendMailW(
+    session: usize,
+    _ui: usize,
+    message: *mut MapiMessageW,
+    flags: u32,
+    _reserved: u32,
+) -> u32 {
+    guarded(|| send_draft(session, _ui, unsafe { draft_from_w(message)? }, flags))
+}
+fn send_draft(session: usize, ui: usize, draft: Draft, flags: u32) -> MResult<()> {
+    // Modeless calls have a different lifetime/result contract; do not report a draft as sent.
+    if flags & 0x0c == 0x0c {
+        return Err(MAPI_E_NOT_SUPPORTED);
+    }
+    if flags & MAPI_DIALOG != 0 {
+        if session != 0 {
+            let mut sessions = SESSIONS
+                .get_or_init(Default::default)
+                .lock()
                 .map_err(|_| MAPI_E_FAILURE)?;
-            crate::network::smtp_send(&account, &draft, &raw)
-                .map_err(|_| MAPI_E_NETWORK_FAILURE)?;
-            store.move_to(&id, "Sent").map_err(|_| MAPI_E_FAILURE)
-        })
+            let store = sessions.get_mut(&session).ok_or(MAPI_E_INVALID_SESSION)?;
+            // Release the caller's store lock before the GUI opens that same store.
+            store.take();
+        }
+        return match mail_windows::mapi_bridge::send_dialog(draft, ui)
+            .map_err(|_| MAPI_E_FAILURE)?
+        {
+            SUCCESS_SUCCESS => Ok(()),
+            code => Err(code),
+        };
+    }
+    with_store(session, |store| {
+        let mut account = store.account().cloned().ok_or(MAPI_E_LOGON_FAILURE)?;
+        if matches!(account.auth, mail_core::account::Authentication::OAuth2(_)) {
+            mail_core::oauth::access_token(&mut account).map_err(|_| MAPI_E_LOGON_FAILURE)?;
+            let account_id = store
+                .default_account_id()
+                .ok_or(MAPI_E_LOGON_FAILURE)?
+                .clone();
+            store
+                .update_account(&account_id, account.clone())
+                .map_err(|_| MAPI_E_FAILURE)?;
+        }
+        let raw = draft
+            .build(&account.email)
+            .map_err(|_| MAPI_E_INVALID_MESSAGE)?;
+        let id = store
+            .import(&raw, "Outbox", None)
+            .map_err(|_| MAPI_E_FAILURE)?;
+        crate::network::smtp_send(&account, &draft, &raw).map_err(|_| MAPI_E_NETWORK_FAILURE)?;
+        store.move_to(&id, "Sent").map_err(|_| MAPI_E_FAILURE)
     })
 }
 
@@ -643,4 +750,35 @@ pub unsafe extern "system" fn MAPIFreeBuffer(pointer: *mut c_void) -> u32 {
         }
         Ok(())
     })
+}
+
+#[cfg(test)]
+mod sending_tests {
+    use super::*;
+    #[test]
+    fn unicode_send_decodes_subject_and_recipients_without_ansi_loss() {
+        let mut subject: Vec<u16> = "中文主题".encode_utf16().chain(Some(0)).collect();
+        let mut address: Vec<u16> = "SMTP:receiver@example.com"
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut recipient = MapiRecipDescW {
+            ulRecipClass: MAPI_TO,
+            lpszAddress: address.as_mut_ptr(),
+            ..Default::default()
+        };
+        let message = MapiMessageW {
+            lpszSubject: subject.as_mut_ptr(),
+            nRecipCount: 1,
+            lpRecips: &mut recipient,
+            ..Default::default()
+        };
+        let draft = unsafe { draft_from_w(&message) }.unwrap();
+        assert_eq!(draft.subject, "中文主题");
+        assert_eq!(draft.to, "receiver@example.com");
+        assert_eq!(
+            unsafe { MAPISendMailW(0, 0, null_mut(), MAPI_DIALOG, 0) },
+            MAPI_E_INVALID_MESSAGE
+        );
+    }
 }

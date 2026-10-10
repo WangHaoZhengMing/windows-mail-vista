@@ -118,7 +118,7 @@ impl MainWindow {
                     Ok(view) => {
                         self.controls.preview_html = view.hwnd();
                         unsafe {
-                            SetWindowLongPtrW(view.hwnd(), GWLP_ID, 205);
+                            SetWindowLongPtrW(view.hwnd(), GWLP_ID, (205) as _);
                         }
                         self.html_view = Some(view);
                     }

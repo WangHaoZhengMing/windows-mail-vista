@@ -160,7 +160,7 @@ pub(super) unsafe extern "system" fn window_proc(
     unsafe {
         if msg == WM_NCCREATE {
             let create = &*(lp as *const CREATESTRUCTW);
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as isize);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, create.lpCreateParams as _);
             return 1;
         }
         let pointer = GetWindowLongPtrW(hwnd, GWLP_USERDATA) as *const WindowHost;

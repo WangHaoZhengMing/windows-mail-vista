@@ -42,7 +42,7 @@ jobs:
 
       - name: Install Rust
         run: |
-          rustup toolchain install 1.88.0 --profile minimal --target x86_64-pc-windows-msvc
+          rustup toolchain install 1.88.0 --profile minimal --target x86_64-pc-windows-msvc --target i686-pc-windows-msvc
           rustup override set 1.88.0
 
       - name: Isolate test data
@@ -70,30 +70,21 @@ jobs:
         run: cargo test -p mail_core -p mail_app --locked --target x86_64-pc-windows-msvc -- --test-threads=1
 
       - name: Build Windows application
-        run: cargo build -p mail_windows --bin WinMail --release --locked --target x86_64-pc-windows-msvc
-
-      - name: Package portable Windows release
-        env:
-          APP_VERSION: ${{ steps.version.outputs.version }}
         run: |
-          $ErrorActionPreference = 'Stop'
-          $package = "Windows-Mail-Vista-$env:APP_VERSION-windows-x64"
-          New-Item -ItemType Directory -Path "dist/$package" -Force | Out-Null
-          Copy-Item -LiteralPath 'target/x86_64-pc-windows-msvc/release/WinMail.exe' -Destination "dist/$package/WinMail.exe"
-          Copy-Item -LiteralPath 'README.md' -Destination "dist/$package/README.md"
-          foreach ($license in Get-ChildItem -File -Filter 'LICENSE*') {
-            Copy-Item -LiteralPath $license.FullName -Destination "dist/$package"
-          }
-          Compress-Archive -Path "dist/$package" -DestinationPath "dist/$package.zip"
-          $hash = (Get-FileHash -LiteralPath "dist/$package.zip" -Algorithm SHA256).Hash.ToLowerInvariant()
-          "$hash  $package.zip" | Set-Content -LiteralPath "dist/$package.zip.sha256" -Encoding utf8NoBOM
+          cargo build -p mail_windows -p mail_windows_compat --release --locked --target x86_64-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'x64 build failed' }
+          cargo build -p mail_windows_compat --release --locked --target i686-pc-windows-msvc
+          if ($LASTEXITCODE -ne 0) { throw 'x86 MAPI build failed' }
+
+      - name: Build MSI installer
+        run: ./scripts/Build-Msi.ps1
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: windows-x64
           path: |
-            dist/*.zip
+            dist/*.msi
             dist/*.sha256
           if-no-files-found: error
           retention-days: 14
@@ -124,4 +115,4 @@ jobs:
             gh release create "$RELEASE_TAG" --verify-tag \
               --title "Windows Mail Vista $RELEASE_TAG" --generate-notes
           fi
-          gh release upload "$RELEASE_TAG" dist/*.zip dist/*.sha256 --clobber
+          gh release upload "$RELEASE_TAG" dist/*.msi dist/*.sha256 --clobber

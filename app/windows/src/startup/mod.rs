@@ -1,10 +1,5 @@
 //! Windows application startup, command routing and explicit legacy DLL support.
 
-#[cfg(all(windows, not(target_arch = "x86_64")))]
-compile_error!(
-    "This reconstruction targets the supplied x64 WinMail/MSOE binaries; build for x86_64-pc-windows-msvc."
-);
-
 #[cfg(windows)]
 mod platform;
 #[cfg(windows)]

@@ -18,6 +18,7 @@ const NAV: u16 = 700;
 const APPLY: u16 = 701;
 const ACCOUNTS: u16 = 702;
 const ABOUT: u16 = 703;
+const DEFAULT_APP: u16 = 704;
 
 struct Settings {
     owner: HWND,
@@ -42,7 +43,7 @@ impl Settings {
             SetWindowLongPtrW(
                 nav,
                 GWL_EXSTYLE,
-                GetWindowLongPtrW(nav, GWL_EXSTYLE) & !(WS_EX_CLIENTEDGE as isize),
+                (GetWindowLongPtrW(nav, GWL_EXSTYLE) as u32 & !WS_EX_CLIENTEDGE) as _,
             );
             SetWindowPos(
                 nav,
@@ -155,7 +156,16 @@ impl Settings {
                 ACCOUNTS,
                 [196, 144, 180, 30],
             );
-            self.page_control(window, 1, "STATIC", "Account settings are saved in the account manager.\nRemoving an account keeps downloaded mail in Local Folders.", 0, 0, [196, 220, 380, 72]);
+            self.page_control(
+                window,
+                1,
+                "BUTTON",
+                "Default mail app...",
+                WS_TABSTOP,
+                DEFAULT_APP,
+                [196, 186, 180, 30],
+            );
+            self.page_control(window, 1, "STATIC", "Choose mailto and .eml defaults in Windows Settings.\nRemoving an account keeps mail in Local Folders.", 0, 0, [196, 238, 380, 64]);
             self.page_control(
                 window,
                 2,
@@ -308,11 +318,7 @@ pub(crate) unsafe fn open(owner: HWND) {
         if window.is_null() {
             return;
         }
-        SetWindowLongPtrW(
-            window,
-            GWLP_USERDATA,
-            (&mut *state as *mut Settings) as isize,
-        );
+        SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *state as *mut Settings) as _);
         state.build(window);
         let _ = Box::into_raw(state); // WM_NCDESTROY owns the allocation.
         ShowWindow(window, SW_SHOW);
@@ -487,6 +493,16 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                         );
                     }
                     ABOUT => crate::ui::about::show(window),
+                    DEFAULT_APP => {
+                        if let Err(error) = crate::integration::open_defaults() {
+                            MessageBoxW(
+                                window,
+                                wide(&error).as_ptr(),
+                                wide("Default mail app").as_ptr(),
+                                MB_ICONERROR,
+                            );
+                        }
+                    }
                     id if id == IDCANCEL as u16 => {
                         DestroyWindow(window);
                     }

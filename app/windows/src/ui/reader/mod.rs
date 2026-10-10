@@ -397,7 +397,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
             SetWindowLongPtrW(
                 hwnd,
                 GWLP_USERDATA,
-                (*(lp as *const CREATESTRUCTW)).lpCreateParams as isize,
+                (*(lp as *const CREATESTRUCTW)).lpCreateParams as _,
             );
         }
         if msg == WM_NOTIFY

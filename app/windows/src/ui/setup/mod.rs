@@ -329,7 +329,7 @@ pub(super) unsafe fn open(owner: HWND, has_accounts: bool) {
             manager: null_mut(),
             account_saved: false,
         });
-        SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *state as *mut Setup) as isize);
+        SetWindowLongPtrW(window, GWLP_USERDATA, (&mut *state as *mut Setup) as _);
         state.build(window, has_accounts);
         let _ = Box::into_raw(state);
         EnableWindow(owner, 0);

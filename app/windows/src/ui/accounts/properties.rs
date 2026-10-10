@@ -680,7 +680,7 @@ unsafe extern "system" fn property_proc(window: HWND, message: u32, wp: usize, l
     unsafe {
         if message == WM_NCCREATE {
             let create = &*(lp as *const CREATESTRUCTW);
-            SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as isize);
+            SetWindowLongPtrW(window, GWLP_USERDATA, create.lpCreateParams as _);
             return 1;
         }
         let host = GetWindowLongPtrW(window, GWLP_USERDATA) as *const PropertyHost;

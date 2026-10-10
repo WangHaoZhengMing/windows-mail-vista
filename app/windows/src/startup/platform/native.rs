@@ -188,6 +188,20 @@ pub fn manual_launch_allowed() -> bool {
 }
 
 pub fn run(tail: &[u16], runtime: &Path, show: i32) -> Result<i32> {
+    let setup = String::from_utf16_lossy(tail)
+        .trim_end_matches('\0')
+        .trim()
+        .to_ascii_lowercase();
+    let operation = match setup.as_str() {
+        "/register-app" => Some(crate::integration::register()),
+        "/unregister-app" => Some(crate::integration::unregister()),
+        "/register-mapi" => Some(crate::integration::register_mapi()),
+        "/unregister-mapi" => Some(crate::integration::unregister_mapi()),
+        _ => None,
+    };
+    if let Some(result) = operation {
+        return result.map(|()| 0).map_err(|e| fail(102, e));
+    }
     let runtime = std::path::absolute(runtime).map_err(|e| fail(102, e.to_string()))?;
     let route = command::route(tail);
     if command::policy_blocks(tail, manual_launch_allowed()) {
@@ -236,6 +250,9 @@ pub fn show_command() -> i32 {
 }
 
 fn core(runtime: &Path) -> Result<Library> {
+    if !cfg!(target_arch = "x86_64") {
+        return Err(fail(102, "The original Windows Mail runtime requires x64"));
+    }
     Library::load(&runtime.join("msoe.dll")).map_err(|error| {
         fail(
             crate::startup::loader_exit_code(

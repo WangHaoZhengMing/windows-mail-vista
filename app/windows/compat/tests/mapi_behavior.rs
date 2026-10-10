@@ -126,8 +126,8 @@ fn mapi_fixture() {
             0
         );
         assert_eq!(
-            MAPISendMail(session, 0, &mut message, MAPI_DIALOG, 0),
-            MAPI_E_NOT_SUPPORTED
+            MAPISendMail(session, 0, std::ptr::null_mut(), MAPI_DIALOG, 0),
+            MAPI_E_INVALID_MESSAGE
         );
         assert_eq!(msoe::mapi::MAPIFreeBuffer(recipient.cast()), 0);
         assert_eq!(MAPIDeleteMail(session, 0, id.as_ptr(), 0, 0), 0);
@@ -147,4 +147,89 @@ fn mapi_fixture() {
         assert_eq!(MAPILogoff(session, 0, 0, 0), MAPI_E_INVALID_SESSION);
         assert_eq!(msoe::abi::DllCanUnloadNow(), 0);
     }
+}
+
+#[test]
+#[ignore = "Build WinMail.exe first and set WINMAIL_EXECUTABLE to that executable"]
+fn interactive_mapi_opens_gui_and_returns_cancel() {
+    let exe = std::env::var_os("WINMAIL_EXECUTABLE")
+        .expect("Set WINMAIL_EXECUTABLE to a freshly built WinMail.exe");
+    let tmp = Temp::new();
+    let output = Command::new(std::env::current_exe().unwrap())
+        .args(["--exact", "mapi_dialog_fixture", "--nocapture"])
+        .env("WINMAIL_DIALOG_TEST", "1")
+        .env("WINMAIL_DATA_DIR", &tmp.0)
+        .env("WINMAIL_EXECUTABLE", exe)
+        .output()
+        .unwrap();
+    assert!(
+        output.status.success(),
+        "{}\n{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
+}
+#[test]
+fn mapi_dialog_fixture() {
+    if std::env::var_os("WINMAIL_DIALOG_TEST").is_none() {
+        return;
+    }
+    use windows_sys::Win32::UI::WindowsAndMessaging::*;
+    let wide = |s: &str| s.encode_utf16().chain(Some(0)).collect::<Vec<_>>();
+    let thread = std::thread::spawn(|| {
+        use windows_sys::Win32::System::Mapi::*;
+        let mut subject: Vec<u16> = "Unicode MAPI test 中文"
+            .encode_utf16()
+            .chain(Some(0))
+            .collect();
+        let mut mail = MapiMessageW {
+            lpszSubject: subject.as_mut_ptr(),
+            ..Default::default()
+        };
+        unsafe { msoe::mapi::MAPISendMailW(0, 0, &mut mail, MAPI_DIALOG, 0) }
+    });
+    let class = wide(&msoe::instance_names().1);
+    let compose_class = wide("WinMailRust.Compose");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(25);
+    let mut main = std::ptr::null_mut();
+    let mut composer = std::ptr::null_mut();
+    unsafe {
+        while std::time::Instant::now() < deadline && !thread.is_finished() {
+            main = FindWindowW(class.as_ptr(), std::ptr::null());
+            composer = FindWindowExW(
+                std::ptr::null_mut(),
+                std::ptr::null_mut(),
+                compose_class.as_ptr(),
+                std::ptr::null(),
+            );
+            while !composer.is_null() && GetWindow(composer, GW_OWNER) != main {
+                composer = FindWindowExW(
+                    std::ptr::null_mut(),
+                    composer,
+                    compose_class.as_ptr(),
+                    std::ptr::null(),
+                );
+            }
+            if !main.is_null() && !composer.is_null() {
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        if !composer.is_null() {
+            PostMessageW(composer, WM_CLOSE, 0, 0);
+        }
+        let finish = std::time::Instant::now() + std::time::Duration::from_secs(10);
+        while !thread.is_finished() && std::time::Instant::now() < finish {
+            std::thread::sleep(std::time::Duration::from_millis(25));
+        }
+        if !main.is_null() {
+            PostMessageW(main, WM_CLOSE, 0, 0);
+        }
+    }
+    assert!(
+        !composer.is_null(),
+        "MAPI did not create the compose window"
+    );
+    assert!(thread.is_finished(), "MAPI did not return after cancel");
+    assert_eq!(thread.join().unwrap(), 1);
 }

@@ -198,6 +198,10 @@
 #pagebreak(weak: true)
 = 快速开始
 
+从 #link("https://github.com/WangHaoZhengMing/windows-mail-vista/releases/latest")[GitHub Release] 下载单文件 MSI，双击安装后从开始菜单打开。安装包包含 32 / 64 位 MAPI DLL，支持升级、修复和卸载；卸载保留邮件数据。打包方法见 #link("packaging/windows/README.md")[MSI 构建说明]。
+
+默认邮件应用、`mailto:` / EML 文件关联与 Simple MAPI 的安装和撤销见 #link("app/windows/SYSTEM-INTEGRATION.md")[Windows 系统集成]。设置中的 Accounts → Default mail app 可打开 Windows 默认应用选择页；交互写信支持 ANSI / Unicode 和 32 / 64 位适配 DLL。
+
 == 构建环境
 
 - Windows 10 1703 或更新版本，或 Windows 11；x64。

@@ -1,0 +1,77 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+  <Product Id="*" Name="Windows Mail Vista" Language="1033" Version="$(var.Version)" Manufacturer="Windows Mail Vista Project" UpgradeCode="2840D985-7485-4E99-9880-A184602D590B">
+    <Package InstallerVersion="500" Compressed="yes" InstallScope="perMachine" Platform="x64" />
+    <MajorUpgrade DowngradeErrorMessage="A newer version of Windows Mail Vista is already installed." />
+    <MediaTemplate EmbedCab="yes" />
+    <Property Id="ARPCOMMENTS" Value="Native Rust email client with classic Windows Mail styling." />
+    <Property Id="ARPURLINFOABOUT" Value="https://github.com/WangHaoZhengMing/windows-mail-vista" />
+    <Property Id="ARPNOMODIFY" Value="1" />
+    <Icon Id="WinMailIcon" SourceFile="$(var.ProjectRoot)\assets\windows\icons\app.ico" />
+    <Property Id="ARPPRODUCTICON" Value="WinMailIcon" />
+    <Directory Id="TARGETDIR" Name="SourceDir">
+      <Directory Id="ProgramFiles64Folder">
+        <Directory Id="INSTALLDIR" Name="Windows Mail Vista">
+          <Component Id="Application" Guid="*" Win64="yes">
+            <File Id="WinMailExecutable" Source="$(var.Payload64)\WinMail.exe" KeyPath="yes">
+              <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Windows Mail Vista" WorkingDirectory="INSTALLDIR" Advertise="yes" Icon="WinMailIcon" />
+            </File>
+          </Component>
+          <Component Id="Mapi64" Guid="*" Win64="yes"><File Id="Mapi64File" Source="$(var.Payload64)\msoe.dll" KeyPath="yes" /></Component>
+          <Component Id="Readme" Guid="*" Win64="yes"><File Id="ReadmeFile" Source="$(var.ProjectRoot)\README.md" KeyPath="yes" /></Component>
+          <Component Id="IntegrationGuide" Guid="*" Win64="yes"><File Id="IntegrationGuideFile" Source="$(var.ProjectRoot)\app\windows\SYSTEM-INTEGRATION.md" KeyPath="yes" /></Component>
+          <Directory Id="X86DIR" Name="x86">
+            <Component Id="Mapi32" Guid="*" Win64="yes"><File Id="Mapi32File" Source="$(var.Payload32)\msoe.dll" KeyPath="yes" /></Component>
+          </Directory>
+        </Directory>
+      </Directory>
+      <Directory Id="ProgramMenuFolder" />
+      <Component Id="Registration32" Guid="D57996DE-BCDF-494A-A910-8D6B8255A2D6" Win64="no">
+        <RegistryKey Root="HKLM" Key="Software\Clients\Mail\Windows Mail Rust">
+          <RegistryValue Type="string" Value="Windows Mail Rust" KeyPath="yes" />
+          <RegistryValue Name="DLLPath" Type="string" Value="[X86DIR]msoe.dll" />
+          <RegistryValue Name="Executable" Type="string" Value="[INSTALLDIR]WinMail.exe" />
+        </RegistryKey>
+      </Component>
+      <Component Id="Registration64" Guid="01E97A25-D0B3-498C-A37C-3A2DB673CD39" Win64="yes">
+        <RegistryKey Root="HKLM" Key="Software\WindowsMailRust\Capabilities">
+          <RegistryValue Name="ApplicationName" Type="string" Value="Windows Mail Rust" KeyPath="yes" />
+          <RegistryValue Name="ApplicationDescription" Type="string" Value="Rust desktop mail client: IMAP, POP3 and SMTP" />
+          <RegistryValue Name="ApplicationIcon" Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot;,0" />
+          <RegistryKey Key="URLAssociations"><RegistryValue Name="mailto" Type="string" Value="WindowsMailRust.Mailto" /></RegistryKey>
+          <RegistryKey Key="FileAssociations"><RegistryValue Name=".eml" Type="string" Value="WindowsMailRust.EML" /></RegistryKey>
+          <RegistryKey Key="Startmenu"><RegistryValue Name="Mail" Type="string" Value="Windows Mail Rust" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\RegisteredApplications"><RegistryValue Name="Windows Mail Rust" Type="string" Value="Software\WindowsMailRust\Capabilities" /></RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\WindowsMailRust.Mailto">
+          <RegistryValue Type="string" Value="Windows Mail URL" />
+          <RegistryValue Name="URL Protocol" Type="string" Value="" />
+          <RegistryKey Key="DefaultIcon"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot;,0" /></RegistryKey>
+          <RegistryKey Key="shell\open\command"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot; &quot;%1&quot;" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\WindowsMailRust.EML">
+          <RegistryValue Type="string" Value="Internet Mail Message" />
+          <RegistryKey Key="DefaultIcon"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot;,0" /></RegistryKey>
+          <RegistryKey Key="shell\open\command"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot; &quot;%1&quot;" /></RegistryKey>
+        </RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Classes\.eml\OpenWithProgids"><RegistryValue Name="WindowsMailRust.EML" Type="string" Value="" /></RegistryKey>
+        <RegistryKey Root="HKLM" Key="Software\Clients\Mail\Windows Mail Rust">
+          <RegistryValue Type="string" Value="Windows Mail Rust" />
+          <RegistryValue Name="DLLPath" Type="string" Value="[INSTALLDIR]msoe.dll" />
+          <RegistryValue Name="Executable" Type="string" Value="[INSTALLDIR]WinMail.exe" />
+          <RegistryKey Key="shell\open\command"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot;" /></RegistryKey>
+          <RegistryKey Key="Protocols\mailto\shell\open\command"><RegistryValue Type="string" Value="&quot;[INSTALLDIR]WinMail.exe&quot; &quot;%1&quot;" /></RegistryKey>
+        </RegistryKey>
+      </Component>
+    </Directory>
+    <Feature Id="Complete" Title="Windows Mail Vista" Level="1">
+      <ComponentRef Id="Application" /><ComponentRef Id="Mapi64" /><ComponentRef Id="Mapi32" />
+      <ComponentRef Id="Readme" /><ComponentRef Id="IntegrationGuide" />
+      <ComponentRef Id="Registration64" /><ComponentRef Id="Registration32" />
+    </Feature>
+    <!-- Only restore an explicitly selected system MAPI client on full removal.
+         Major upgrades keep the saved previous-client value for the new version. -->
+    <CustomAction Id="RestoreMapiClient" FileKey="WinMailExecutable" ExeCommand="/unregister-mapi" Execute="deferred" Impersonate="no" Return="check" />
+    <InstallExecuteSequence><Custom Action="RestoreMapiClient" Before="RemoveRegistryValues">REMOVE="ALL" AND NOT UPGRADINGPRODUCTCODE</Custom></InstallExecuteSequence>
+  </Product>
+</Wix>
