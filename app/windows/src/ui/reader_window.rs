@@ -419,10 +419,10 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
                 rect.top = dpi::scale(30, dpi);
                 rect.bottom = dpi::scale(if state.details.get() { 140 } else { 92 }, dpi);
                 let brush = GetStockObject(DC_BRUSH) as HBRUSH;
-                SetDCBrushColor(dc, 0xfbf8f4);
+                SetDCBrushColor(dc, crate::platform::theme::panel(0xfbf8f4));
                 FillRect(dc, &rect, brush);
                 rect.top = rect.bottom - dpi::scale(1, dpi).max(1);
-                SetDCBrushColor(dc, 0xe5d7c8);
+                SetDCBrushColor(dc, crate::platform::theme::panel(0xe5d7c8));
                 FillRect(dc, &rect, brush);
                 EndPaint(hwnd, &paint);
                 0
@@ -447,7 +447,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
                             0x40362d
                         },
                     );
-                    SetDCBrushColor(dc, 0xfbf8f4);
+                    SetDCBrushColor(dc, crate::platform::theme::panel(0xfbf8f4));
                     GetStockObject(DC_BRUSH) as isize
                 } else {
                     DefWindowProcW(hwnd, msg, wp, lp)

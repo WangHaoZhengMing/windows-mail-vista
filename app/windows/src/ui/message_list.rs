@@ -64,10 +64,14 @@ pub(super) unsafe fn draw_status(list: HWND, draw: &NMLVCUSTOMDRAW, row: &Row) {
         } else {
             0xffffff
         };
-        let brush = CreateSolidBrush(background);
+        let brush = CreateSolidBrush(if selected {
+            background
+        } else {
+            crate::platform::theme::surface(background)
+        });
         FillRect(draw.nmcd.hdc, &rect, brush);
         DeleteObject(brush);
-        let divider = CreateSolidBrush(0xf7eee3);
+        let divider = CreateSolidBrush(crate::platform::theme::panel(0xf7eee3));
         let edge = RECT {
             left: rect.right - 1,
             ..rect

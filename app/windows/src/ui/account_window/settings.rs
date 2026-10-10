@@ -15,12 +15,14 @@ const ABOUT: u16 = 703;
 pub(crate) struct Preferences {
     pub folders: bool,
     pub preview: bool,
+    pub dark_mode: bool,
 }
 impl Default for Preferences {
     fn default() -> Self {
         Self {
             folders: true,
             preview: true,
+            dark_mode: false,
         }
     }
 }
@@ -48,6 +50,7 @@ struct Settings {
     pages: [Vec<HWND>; 4],
     folders: HWND,
     preview: HWND,
+    dark_mode: HWND,
 }
 impl Settings {
     unsafe fn build(&mut self, window: HWND) {
@@ -134,7 +137,22 @@ impl Settings {
                 usize::from(preferences.preview),
                 0,
             );
-            self.page_control(window, 0, "STATIC", "Changes apply when you select Save changes.\nYour choices are remembered for the next launch.", 0, 0, [196, 196, 380, 54]);
+            self.dark_mode = self.page_control(
+                window,
+                0,
+                "BUTTON",
+                "Use dark mode",
+                WS_TABSTOP | BS_AUTOCHECKBOX as u32,
+                713,
+                [196, 192, 380, 28],
+            );
+            SendMessageW(
+                self.dark_mode,
+                BM_SETCHECK,
+                usize::from(preferences.dark_mode),
+                0,
+            );
+            self.page_control(window, 0, "STATIC", "Changes apply when you select Save changes.\nYour choices are remembered for the next launch.", 0, 0, [196, 238, 380, 54]);
             self.page_control(
                 window,
                 1,
@@ -296,6 +314,7 @@ pub(crate) unsafe fn open(owner: HWND) {
             pages: std::array::from_fn(|_| Vec::new()),
             folders: null_mut(),
             preview: null_mut(),
+            dark_mode: null_mut(),
         });
         let window = CreateWindowExW(
             WS_EX_CONTROLPARENT,
@@ -337,11 +356,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     return 1;
                 }
                 let selected = item.itemState & ODS_SELECTED != 0;
-                let brush = CreateSolidBrush(if selected { 0x00f4dfc5 } else { 0x00faf5ef });
+                let brush = CreateSolidBrush(if crate::platform::theme::is_dark() && selected {
+                    0x68462b
+                } else {
+                    crate::platform::theme::panel(if selected { 0x00f4dfc5 } else { 0x00faf5ef })
+                });
                 FillRect(item.hDC, &item.rcItem, brush);
                 DeleteObject(brush);
                 if selected {
-                    let accent = CreateSolidBrush(0x00ba7733);
+                    let accent = CreateSolidBrush(crate::platform::theme::panel(0x00ba7733));
                     FillRect(
                         item.hDC,
                         &RECT {
@@ -353,7 +376,10 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     DeleteObject(accent);
                 }
                 SetBkMode(item.hDC, TRANSPARENT as i32);
-                SetTextColor(item.hDC, if selected { 0x00804416 } else { 0x00604c3c });
+                SetTextColor(
+                    item.hDC,
+                    crate::platform::theme::text(if selected { 0x00804416 } else { 0x00604c3c }),
+                );
                 let caption =
                     wide(["Appearance", "Accounts", "Storage", "About"][item.itemID as usize]);
                 let mut bounds = item.rcItem;
@@ -376,8 +402,12 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                 let mut bounds = RECT::default();
                 GetClientRect(window, &mut bounds);
                 let scale = |n| dpi::scale(n, dpi::window_dpi(window));
-                FillRect(dc, &bounds, GetSysColorBrush(COLOR_WINDOW));
-                let brush = CreateSolidBrush(0x00faf5ef);
+                SetDCBrushColor(
+                    dc,
+                    crate::platform::theme::surface(GetSysColor(COLOR_WINDOW)),
+                );
+                FillRect(dc, &bounds, GetStockObject(DC_BRUSH) as HBRUSH);
+                let brush = CreateSolidBrush(crate::platform::theme::panel(0x00faf5ef));
                 FillRect(
                     dc,
                     &RECT {
@@ -394,9 +424,15 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                         top: scale(320),
                         ..bounds
                     },
-                    GetSysColorBrush(COLOR_BTNFACE),
+                    {
+                        SetDCBrushColor(
+                            dc,
+                            crate::platform::theme::panel(GetSysColor(COLOR_BTNFACE)),
+                        );
+                        GetStockObject(DC_BRUSH) as HBRUSH
+                    },
                 );
-                let line = CreateSolidBrush(0x00ddd6ce);
+                let line = CreateSolidBrush(crate::platform::theme::panel(0x00ddd6ce));
                 FillRect(
                     dc,
                     &RECT {
@@ -432,7 +468,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
             }
             WM_CTLCOLORLISTBOX => {
                 SetBkColor(wp as HDC, 0x00faf5ef);
-                SetDCBrushColor(wp as HDC, 0x00faf5ef);
+                SetDCBrushColor(wp as HDC, crate::platform::theme::panel(0x00faf5ef));
                 GetStockObject(DC_BRUSH) as isize
             }
             WM_COMMAND => {
@@ -446,6 +482,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     }
                     APPLY => {
                         let preferences = Preferences {
+                            dark_mode: SendMessageW((*pointer).dark_mode, BM_GETCHECK, 0, 0)
+                                == BST_CHECKED as isize,
                             folders: SendMessageW((*pointer).folders, BM_GETCHECK, 0, 0)
                                 == BST_CHECKED as isize,
                             preview: SendMessageW((*pointer).preview, BM_GETCHECK, 0, 0)
@@ -534,6 +572,20 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn old_preferences_keep_light_mode_and_dark_mode_round_trips() {
+        let old: Preferences = serde_json::from_str(r#"{"folders":false,"preview":true}"#).unwrap();
+        assert!(!old.dark_mode);
+        let dark = Preferences {
+            dark_mode: true,
+            ..old
+        };
+        let restored: Preferences =
+            serde_json::from_slice(&serde_json::to_vec(&dark).unwrap()).unwrap();
+        assert!(restored.dark_mode);
+        assert!(!restored.folders);
+    }
 
     #[test]
     fn pages_switch_without_saving_and_cancel_releases_window_state() {

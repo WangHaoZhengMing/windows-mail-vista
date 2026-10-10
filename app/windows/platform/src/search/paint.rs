@@ -3,7 +3,7 @@ use super::*;
 
 unsafe fn fill(dc: HDC, rect: RECT, color: u32) {
     unsafe {
-        let brush = CreateSolidBrush(color);
+        let brush = CreateSolidBrush(super::super::theme::surface(color));
         FillRect(dc, &rect, brush);
         DeleteObject(brush);
     }
@@ -22,7 +22,8 @@ pub(super) unsafe fn frame(dc: HDC, rect: RECT, state: &State) {
         };
         let pen = CreatePen(PS_SOLID, thickness, color);
         let old_pen = SelectObject(dc, pen);
-        let old_brush = SelectObject(dc, GetStockObject(WHITE_BRUSH));
+        SetDCBrushColor(dc, super::super::theme::surface(WHITE));
+        let old_brush = SelectObject(dc, GetStockObject(DC_BRUSH));
         let inset = thickness / 2;
         RoundRect(
             dc,

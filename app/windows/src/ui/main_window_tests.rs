@@ -185,7 +185,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
             DeleteObject(bitmap);
             DeleteDC(dc);
             ReleaseDC(list, source);
-            assert_eq!(background, 0xffffff);
+            assert_eq!(background, crate::platform::theme::surface(0xffffff));
             assert_eq!(
                 window.list_rows[0].from_tip,
                 wide("Sender Name <sender@example.com>")

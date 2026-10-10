@@ -156,7 +156,11 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                 let dc = BeginPaint(window, &mut paint);
                 let mut bounds = RECT::default();
                 GetClientRect(window, &mut bounds);
-                FillRect(dc, &bounds, GetSysColorBrush(COLOR_BTNFACE));
+                SetDCBrushColor(
+                    dc,
+                    crate::platform::theme::panel(GetSysColor(COLOR_BTNFACE)),
+                );
+                FillRect(dc, &bounds, GetStockObject(DC_BRUSH) as HBRUSH);
                 let value = (*pointer).resources.dpi;
                 let banner = dpi::scale(88, value);
                 for x in 0..bounds.right {
@@ -164,7 +168,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     let r = (6.0 + 20.0 * t) as u32;
                     let g = (79.0 + 40.0 * t) as u32;
                     let b = (120.0 + 10.0 * t) as u32;
-                    let brush = CreateSolidBrush(r | g << 8 | b << 16);
+                    let brush =
+                        CreateSolidBrush(crate::platform::theme::panel(r | g << 8 | b << 16));
                     FillRect(
                         dc,
                         &RECT {
@@ -210,7 +215,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     ),
                     [58, 114, 448, 52],
                     14,
-                    GetSysColor(COLOR_WINDOWTEXT),
+                    crate::platform::theme::text(GetSysColor(COLOR_WINDOWTEXT)),
                 );
                 label(
                     dc,
@@ -218,7 +223,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     "A desktop email client inspired by classic Windows Mail.\nRead and organize mail, manage multiple accounts, and compose messages with attachments.",
                     [58, 178, 448, 70],
                     13,
-                    GetSysColor(COLOR_WINDOWTEXT),
+                    crate::platform::theme::text(GetSysColor(COLOR_WINDOWTEXT)),
                 );
                 label(
                     dc,
@@ -226,7 +231,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     "Supports IMAP, POP3 and SMTP.\nBuilt with Rust and native Windows controls.",
                     [58, 264, 448, 48],
                     13,
-                    GetSysColor(COLOR_WINDOWTEXT),
+                    crate::platform::theme::text(GetSysColor(COLOR_WINDOWTEXT)),
                 );
                 label(
                     dc,
@@ -234,7 +239,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     "An independent implementation. Not affiliated with Microsoft.\nWindows and Windows Mail are trademarks of Microsoft.",
                     [58, 328, 448, 42],
                     11,
-                    GetSysColor(COLOR_GRAYTEXT),
+                    crate::platform::theme::text(GetSysColor(COLOR_GRAYTEXT)),
                 );
                 EndPaint(window, &paint);
                 0

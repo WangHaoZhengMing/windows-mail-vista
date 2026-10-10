@@ -25,6 +25,7 @@ icon_set!(ToolbarIcon, TOOLBAR, "toolbar", [
     Copy => "copy",
     Paste => "paste",
     Attach => "attach",
+    StopSync => "stop-sync",
 ]);
 icon_set!(FolderIcon, MESSAGES, "message-status", [
     UnreadMessage => "unread",

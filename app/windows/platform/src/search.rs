@@ -349,8 +349,8 @@ unsafe extern "system" fn window_proc(window: HWND, message: u32, wp: usize, lp:
                 0
             }
             WM_CTLCOLOREDIT => {
-                SetBkColor(wp as HDC, WHITE);
-                SetTextColor(wp as HDC, GetSysColor(COLOR_WINDOWTEXT));
+                SetBkColor(wp as HDC, super::theme::surface(WHITE));
+                SetTextColor(wp as HDC, super::theme::text(GetSysColor(COLOR_WINDOWTEXT)));
                 GetStockObject(WHITE_BRUSH) as isize
             }
             WM_DRAWITEM if wp == ICON_BUTTON as usize => {

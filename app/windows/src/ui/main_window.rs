@@ -36,10 +36,10 @@ unsafe extern "system" fn sidebar_splitter_proc(
                 let dc = BeginPaint(hwnd, &mut paint);
                 let mut rect = RECT::default();
                 GetClientRect(hwnd, &mut rect);
-                let brush = CreateSolidBrush(0x00eee6dd);
+                let brush = CreateSolidBrush(crate::platform::theme::panel(0x00eee6dd));
                 FillRect(dc, &rect, brush);
                 DeleteObject(brush);
-                let edge = CreateSolidBrush(0x00b9a997);
+                let edge = CreateSolidBrush(crate::platform::theme::panel(0x00b9a997));
                 for x in [0, rect.right - 1] {
                     FillRect(
                         dc,
@@ -296,6 +296,7 @@ impl MainWindow {
             controls: MainWindowControls::default(),
             layout: {
                 let preferences = account_window::settings::Preferences::load();
+                crate::platform::theme::set_dark(preferences.dark_mode);
                 WindowLayout {
                     show_folders: preferences.folders,
                     show_preview: preferences.preview,
@@ -437,7 +438,7 @@ impl MainWindow {
                     (
                         "Stop sync",
                         command_id(Command::CancelSync),
-                        ToolbarIcon::Delete,
+                        ToolbarIcon::StopSync,
                         false,
                     ),
                     (
@@ -1876,6 +1877,10 @@ impl MainWindow {
         }
         if matches!(event, WindowEvent::SettingsChanged) {
             let preferences = account_window::settings::Preferences::load();
+            crate::platform::theme::set_dark(preferences.dark_mode);
+            unsafe {
+                crate::platform::theme::refresh();
+            }
             self.layout.show_folders = preferences.folders;
             self.layout.show_preview = preferences.preview;
             self.relayout();
@@ -1886,6 +1891,7 @@ impl MainWindow {
             WindowEvent::Settings | WindowEvent::SettingsChanged => unreachable!(),
             WindowEvent::Create(hwnd) => unsafe {
                 self.setup(hwnd);
+                crate::platform::theme::refresh();
             },
             WindowEvent::Resize { width, height } => unsafe {
                 self.layout

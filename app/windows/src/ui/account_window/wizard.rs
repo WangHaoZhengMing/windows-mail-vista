@@ -380,7 +380,7 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     },
                     GetSysColorBrush(COLOR_BTNFACE),
                 );
-                let line = CreateSolidBrush(0x00ddd6cf);
+                let line = CreateSolidBrush(crate::platform::theme::panel(0x00ddd6cf));
                 for y in [header - 1, footer] {
                     FillRect(
                         dc,

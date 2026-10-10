@@ -3,7 +3,8 @@ pub(super) unsafe fn background(window: HWND, dc: HDC) {
     unsafe {
         let mut rect = RECT::default();
         GetClientRect(window, &mut rect);
-        FillRect(dc, &rect, GetStockObject(WHITE_BRUSH));
+        SetDCBrushColor(dc, super::super::theme::surface(WHITE));
+        FillRect(dc, &rect, GetStockObject(DC_BRUSH));
         let line = CreatePen(PS_SOLID, 1, 0x00e7e4e1);
         let old = SelectObject(dc, line);
         MoveToEx(dc, 0, rect.bottom - 1, null_mut());
@@ -23,7 +24,7 @@ pub(super) unsafe fn button(item: &DRAWITEMSTRUCT, state: &State, index: usize) 
         } else {
             WHITE
         };
-        let brush = CreateSolidBrush(color);
+        let brush = CreateSolidBrush(super::super::theme::panel(color));
         FillRect(item.hDC, &item.rcItem, brush);
         DeleteObject(brush);
         if hot || selected {
@@ -45,7 +46,10 @@ pub(super) unsafe fn button(item: &DRAWITEMSTRUCT, state: &State, index: usize) 
         }
         let previous = SelectObject(item.hDC, state.font.get());
         let old_mode = SetBkMode(item.hDC, TRANSPARENT as i32);
-        let old_color = SetTextColor(item.hDC, GetSysColor(COLOR_MENUTEXT));
+        let old_color = SetTextColor(
+            item.hDC,
+            super::super::theme::text(GetSysColor(COLOR_MENUTEXT)),
+        );
         let mut rect = item.rcItem;
         let hide = if state.keyboard.get() {
             0

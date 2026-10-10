@@ -34,3 +34,6 @@ pub mod strings;
 pub use credentials::{protect_secret, unprotect_secret};
 pub use paths::default_data_dir;
 pub use storage::open_store_lock;
+
+#[cfg(feature = "ui")]
+pub mod theme;

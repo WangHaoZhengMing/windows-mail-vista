@@ -84,12 +84,12 @@ Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令�
 
 | 分类 | 当前功能 |
 | --- | --- |
-| Appearance | 显示或隐藏文件夹侧栏、邮件预览窗格；保存后立即应用，下次启动恢复 |
+| Appearance | 显示或隐藏文件夹侧栏、邮件预览窗格，切换 Use dark mode；保存后立即应用，下次启动恢复 |
 | Accounts | 打开账户管理窗口 |
 | Storage | 查看本地数据目录和 Local Folders 说明 |
 | About | 查看版本、功能介绍和项目说明 |
 
-设置窗口目前没有主题切换、自动收取间隔等选项。布局偏好保存在数据目录的 `desktop-settings.json`。
+深色模式调整应用窗口和原生控件的配色；邮件正文与撰写区域保留文档原有颜色。设置窗口目前没有自动收取间隔选项。布局和主题偏好保存在数据目录的 `desktop-settings.json`。
 
 ### HTML 阅读
 

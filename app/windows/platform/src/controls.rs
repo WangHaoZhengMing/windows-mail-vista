@@ -85,6 +85,8 @@ unsafe fn create_control(
             GetStockObject(DEFAULT_GUI_FONT) as usize,
             1,
         );
+        super::theme::apply(owner);
+        super::theme::apply(window);
         window
     }
 }
