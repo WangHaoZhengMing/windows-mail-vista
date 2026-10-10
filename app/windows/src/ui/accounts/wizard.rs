@@ -31,7 +31,7 @@ const PROVIDERS: &[Provider] = &[
         imap: "imap.gmail.com",
         smtp: "smtp.gmail.com",
         smtp_port: 587,
-        hint: "Use a Google app password (requires 2-Step Verification), or configure OAuth in the next window. Your administrator may restrict access.",
+        hint: "Use a Google app password (requires 2-Step Verification), or configure OAuth in the next step. Your administrator may restrict access.",
         oauth: false,
     },
     Provider {
@@ -39,7 +39,7 @@ const PROVIDERS: &[Provider] = &[
         imap: "outlook.office365.com",
         smtp: "smtp-mail.outlook.com",
         smtp_port: 587,
-        hint: "Enable IMAP in Outlook.com settings. OAuth 2.0 is required: configure your Microsoft client ID and sign in in the next window.",
+        hint: "Enable IMAP in Outlook.com settings. OAuth 2.0 is required: configure your Microsoft client ID and sign in in the next step.",
         oauth: true,
     },
     Provider {
@@ -63,7 +63,7 @@ const PROVIDERS: &[Provider] = &[
         imap: "",
         smtp: "",
         smtp_port: 587,
-        hint: "Enter your provider's server addresses and login method in the next window.",
+        hint: "Enter your provider's server addresses and login method in the next step.",
         oauth: false,
     },
 ];
@@ -269,16 +269,25 @@ pub(super) unsafe fn open(manager: HWND) {
             steps: null_mut(),
         });
         let value = dpi::window_dpi(manager);
+        let embedded = (*host).embedded;
         let window = CreateWindowExW(
             WS_EX_CONTROLPARENT | WS_EX_DLGMODALFRAME,
             class.as_ptr(),
             wide("New Account Wizard — Windows Mail Vista").as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            if embedded.is_null() {
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
+            } else {
+                WS_CHILD | WS_CLIPCHILDREN
+            },
+            if embedded.is_null() { CW_USEDEFAULT } else { 0 },
+            if embedded.is_null() { CW_USEDEFAULT } else { 0 },
             dpi::scale(554, value),
             dpi::scale(414, value),
-            manager,
+            if embedded.is_null() {
+                manager
+            } else {
+                embedded
+            },
             null_mut(),
             GetModuleHandleW(null()),
             null(),
@@ -292,6 +301,7 @@ pub(super) unsafe fn open(manager: HWND) {
         let _ = Box::into_raw(state);
         (*host).property.set(window);
         EnableWindow(manager, 0);
+        present_setup(manager, window, 536, 380);
         ShowWindow(window, SW_SHOW);
         SetForegroundWindow(window);
     }
@@ -421,7 +431,8 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                     },
                 );
                 if header {
-                    GetStockObject(HOLLOW_BRUSH) as isize
+                    SetDCBrushColor(wp as HDC, crate::platform::theme::panel(0x00fff1e5));
+                    GetStockObject(DC_BRUSH) as isize
                 } else {
                     GetSysColorBrush(COLOR_WINDOW) as isize
                 }

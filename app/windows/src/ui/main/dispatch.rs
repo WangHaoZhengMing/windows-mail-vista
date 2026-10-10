@@ -3,13 +3,13 @@
 //! Windows can synchronously reenter a window procedure during a control call.
 //! The host queues events while its window is borrowed; it never creates a
 //! second mutable reference to the window state.
-use super::{
-    DISPATCH, HTML_STATUS, READER_DISPATCH,
-    account_window::{ACCOUNT_SUBMITTED, AccountSubmission},
-    command_ids,
-    main_window::MainWindow,
-};
+use super::MainWindow;
 use crate::store::Store;
+use crate::ui::shared::commands::{self, DISPATCH, HTML_STATUS, READER_DISPATCH};
+use crate::ui::{
+    accounts::{ACCOUNT_SUBMITTED, AccountSubmission},
+    settings,
+};
 use crate::{
     app::{Command, SortColumn},
     platform::{classic, dpi},
@@ -170,14 +170,14 @@ pub(super) unsafe extern "system" fn window_proc(
         // SAFETY: run() owns the boxed host until all window callbacks finish.
         let host = &*pointer;
         let event = match msg {
-            super::account_window::settings::CHANGED => WindowEvent::SettingsChanged,
+            settings::CHANGED => WindowEvent::SettingsChanged,
             WM_CREATE => WindowEvent::Create(hwnd),
             WM_SIZE => WindowEvent::Resize {
                 width: (lp as u32 & 0xffff) as i32,
                 height: ((lp as u32 >> 16) & 0xffff) as i32,
             },
             READER_DISPATCH => {
-                let Some(command) = command_ids::decode((wp & 0xffff) as u16) else {
+                let Some(command) = commands::decode((wp & 0xffff) as u16) else {
                     return 0;
                 };
                 WindowEvent::ReaderCommand {
@@ -188,13 +188,13 @@ pub(super) unsafe extern "system" fn window_proc(
             WM_COMMAND | DISPATCH => {
                 let id = (wp & 0xffff) as u16;
                 let notification = (wp >> 16) as u16;
-                if id == super::menus::SETTINGS as u16 {
+                if id == crate::ui::shared::menus::SETTINGS as u16 {
                     WindowEvent::Settings
-                } else if (id == command_ids::SEARCH && notification == EN_CHANGE as u16)
-                    || (id == command_ids::FILTER && notification == CBN_SELCHANGE as u16)
+                } else if (id == commands::SEARCH && notification == EN_CHANGE as u16)
+                    || (id == commands::FILTER && notification == CBN_SELCHANGE as u16)
                 {
                     WindowEvent::Refresh
-                } else if let Some(command) = command_ids::decode(id) {
+                } else if let Some(command) = commands::decode(id) {
                     WindowEvent::Command {
                         command,
                         composer: (msg == DISPATCH && lp != 0).then_some(lp as HWND),
@@ -217,11 +217,10 @@ pub(super) unsafe extern "system" fn window_proc(
                 }
                 // NMLVKEYDOWN is packed; WM_NOTIFY does not promise NMHDR alignment.
                 let header = std::ptr::read_unaligned(lp as *const NMHDR);
-                if header.idFrom == command_ids::FOLDER as usize && header.code == TVN_SELCHANGEDW {
+                if header.idFrom == commands::FOLDER as usize && header.code == TVN_SELCHANGEDW {
                     let change = &*(lp as *const NMTREEVIEWW);
                     WindowEvent::FolderSelected(change.itemNew.lParam as usize)
-                } else if header.idFrom == command_ids::LIST as usize
-                    && header.code == LVN_ITEMCHANGED
+                } else if header.idFrom == commands::LIST as usize && header.code == LVN_ITEMCHANGED
                 {
                     let change = &*(lp as *const NMLISTVIEW);
                     if change.uNewState & LVIS_SELECTED == 0
@@ -230,7 +229,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         return 0;
                     }
                     WindowEvent::MessageSelected
-                } else if header.idFrom == command_ids::LIST as usize
+                } else if header.idFrom == commands::LIST as usize
                     && matches!(header.code, NM_DBLCLK | NM_RCLICK)
                 {
                     let activation = std::ptr::read_unaligned(lp as *const NMITEMACTIVATE);
@@ -264,8 +263,7 @@ pub(super) unsafe extern "system" fn window_proc(
                         // Suppress the list's default WM_CONTEXTMENU duplicate.
                         return 1;
                     }
-                } else if header.idFrom == command_ids::LIST as usize && header.code == LVN_KEYDOWN
-                {
+                } else if header.idFrom == commands::LIST as usize && header.code == LVN_KEYDOWN {
                     let key = &*(lp as *const NMLVKEYDOWN);
                     if key.wVKey == windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_RETURN {
                         host.dispatch(WindowEvent::Command {
@@ -288,11 +286,10 @@ pub(super) unsafe extern "system" fn window_proc(
                         },
                         composer: None,
                     }
-                } else if header.idFrom == command_ids::LIST as usize
-                    && header.code == LVN_COLUMNCLICK
+                } else if header.idFrom == commands::LIST as usize && header.code == LVN_COLUMNCLICK
                 {
                     let change = &*(lp as *const NMLISTVIEW);
-                    let Some(column) = command_ids::sort_column(change.iSubItem) else {
+                    let Some(column) = commands::sort_column(change.iSubItem) else {
                         return 0;
                     };
                     WindowEvent::Sort(column)

@@ -79,7 +79,7 @@ cargo run -p mail_windows --bin WinMail
 | Yahoo | 使用 Yahoo 应用密码 |
 | QQ | 启用 IMAP/SMTP，使用授权码 |
 
-Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令牌刷新，但需要自行注册应用并配置 Client ID。项目没有内置可直接使用的服务商应用 ID。参见 [OAuth 配置](analysis/OAUTH.md) 和 [服务商预设与官方资料](app/windows/src/ui/account_window/providers.md)。
+Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令牌刷新，但需要自行注册应用并配置 Client ID。项目没有内置可直接使用的服务商应用 ID。参见 [OAuth 配置](analysis/OAUTH.md) 和 [服务商预设与官方资料](app/windows/src/ui/accounts/providers.md)。
 
 ### 收发与整理邮件
 
@@ -99,6 +99,8 @@ Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令�
 **Local Folders** 是独立于邮箱账户的本地存储分组，用于导入邮件以及保留移除账户后的邮件和草稿。账户邮件也会缓存到电脑，本地分组与账户分组的区别是邮件归属。
 
 ### 设置与关于
+
+首次启动时，如果数据目录中不存在 `desktop-settings.json`，会打开 Windows 7 风格的欢迎向导。依次选择界面布局、配置账户并完成设置；账户配置支持常用服务商预设和服务器连接测试，也可以跳过账户配置、先使用本地文件夹。选择 **Finish** 才保存界面配置；取消后，下次启动仍会显示向导。新增账户会自动开始后台同步。
 
 打开 **Tools → Settings...**：
 
@@ -182,7 +184,14 @@ GUI 也可从 `mailto:` 或 EML 文件启动：
 app/
   cli/                        命令行入口
   windows/
-    src/ui/                   主窗口、阅读、写信、设置与账户向导
+    src/ui/
+      main/                   主窗口入口、视图、邮件操作、同步与测试
+      reader/                 邮件阅读窗口
+      compose/                邮件撰写与富文本编辑
+      accounts/               账户管理、服务商向导与 OAuth
+      settings/               全局设置与偏好保存
+      setup/                  首次启动配置向导
+      shared/                 共用命令、菜单、显示规则与窗口布局工具
     src/startup/              参数路由、单实例、系统初始化及旧启动支持
     platform/                 Windows 系统服务与控件
       src/icons/

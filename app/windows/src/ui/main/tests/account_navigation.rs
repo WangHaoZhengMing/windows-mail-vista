@@ -174,7 +174,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
                 iSubItem: 0,
                 ..Default::default()
             };
-            super::super::message_list::draw_status(list, &draw, &window.list_rows[0]);
+            crate::ui::main::message_list::draw_status(list, &draw, &window.list_rows[0]);
             let mut bounds = RECT {
                 left: LVIR_BOUNDS as i32,
                 ..Default::default()
@@ -213,7 +213,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
             nmcd: NMCUSTOMDRAW {
                 hdr: NMHDR {
                     hwndFrom: list,
-                    idFrom: command_ids::LIST as usize,
+                    idFrom: commands::LIST as usize,
                     code: NM_CUSTOMDRAW,
                 },
                 dwDrawStage: CDDS_ITEMPREPAINT | CDDS_SUBITEM,
@@ -230,7 +230,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
                 SendMessageW(
                     hwnd,
                     WM_NOTIFY,
-                    command_ids::LIST as usize,
+                    commands::LIST as usize,
                     &mut draw as *mut _ as isize
                 ),
                 CDRF_NEWFONT as isize
@@ -261,7 +261,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
         let key = NMLVKEYDOWN {
             hdr: NMHDR {
                 hwndFrom: list,
-                idFrom: command_ids::LIST as usize,
+                idFrom: commands::LIST as usize,
                 code: LVN_KEYDOWN,
             },
             wVKey: windows_sys::Win32::UI::Input::KeyboardAndMouse::VK_DELETE,
@@ -270,7 +270,7 @@ fn account_navigation_delete_restore_and_composer_preserve_ownership() {
         SendMessageW(
             hwnd,
             WM_NOTIFY,
-            command_ids::LIST as usize,
+            commands::LIST as usize,
             &key as *const _ as isize,
         );
         host.with_window(|window| {

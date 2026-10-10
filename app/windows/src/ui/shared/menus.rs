@@ -1,5 +1,5 @@
 //! Native menu descriptions for the main and compose windows.
-use super::command_ids::command_id;
+use crate::ui::shared::commands::command_id;
 use crate::{app::Command, platform::strings::wide};
 use windows_sys::Win32::UI::WindowsAndMessaging::*;
 

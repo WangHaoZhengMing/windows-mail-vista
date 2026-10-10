@@ -1,6 +1,6 @@
 //! Reserve space for search/filter, collapsing captions when the window narrows.
-use super::command_ids::{self, command_id};
 use crate::app::Command;
+use crate::ui::shared::commands::{self, command_id};
 use windows_sys::Win32::{
     Foundation::{HWND, RECT},
     UI::{Controls::*, WindowsAndMessaging::SendMessageW},
@@ -64,8 +64,8 @@ unsafe fn captions(toolbar: HWND, presentation: Presentation) {
             let show = match presentation {
                 Presentation::Full => true,
                 Presentation::MailActions => ![
-                    i32::from(command_ids::PRINT),
-                    i32::from(command_ids::CONTACTS),
+                    i32::from(commands::PRINT),
+                    i32::from(commands::CONTACTS),
                     i32::from(command_id(Command::Find)),
                 ]
                 .contains(&button.idCommand),

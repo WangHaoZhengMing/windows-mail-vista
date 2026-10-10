@@ -255,7 +255,7 @@ cargo run -p mail_windows --bin WinMail
   [QQ], [启用 IMAP/SMTP，使用授权码],
 )
 
-Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令牌刷新，但需要自行注册应用并配置 Client ID。项目没有内置可直接使用的服务商应用 ID。参见 #link("analysis/OAUTH.md")[ OAuth 配置 ] 和 #link("app/windows/src/ui/account_window/providers.md")[ 服务商预设与官方资料 ]。
+Microsoft、Google 和自定义 OAuth 支持系统浏览器登录、PKCE 和令牌刷新，但需要自行注册应用并配置 Client ID。项目没有内置可直接使用的服务商应用 ID。参见 #link("analysis/OAUTH.md")[ OAuth 配置 ] 和 #link("app/windows/src/ui/accounts/providers.md")[ 服务商预设与官方资料 ]。
 
 == 收发与整理邮件
 

@@ -1,5 +1,5 @@
 //! Main-window layout state, expressed in logical pixels.
-use super::{controls::MainWindowControls, toolbar_layout};
+use super::{controls::MainWindowControls, toolbar};
 use crate::platform::dpi;
 use windows_sys::Win32::UI::{Controls::*, WindowsAndMessaging::*};
 
@@ -64,7 +64,7 @@ impl WindowLayout {
             } else {
                 filter_left
             };
-            toolbar_layout::fit(controls.toolbar, dpi::scale(buttons_right - 8, dpi_value));
+            toolbar::fit(controls.toolbar, dpi::scale(buttons_right - 8, dpi_value));
             dpi::move_control(dpi_value, controls.menu_bar, 0, 0, width, menu_height, 1);
             dpi::move_control(dpi_value, controls.toolbar, 0, menu_height, width, 32, 1);
             dpi::move_control(

@@ -145,8 +145,8 @@ impl ReaderState {
                 "STATIC",
                 &format!(
                     "{}   ·   {}",
-                    super::super::message_list::sender(&self.message.summary.from),
-                    super::super::message_list::received(&self.message.summary.date)
+                    crate::ui::shared::message_display::sender(&self.message.summary.from),
+                    crate::ui::shared::message_display::received(&self.message.summary.date)
                 ),
                 SS_LEFT,
                 0,

@@ -250,7 +250,7 @@ impl Fixture {
             SendMessageW(
                 self.hwnd,
                 WM_COMMAND,
-                command_ids::FILTER as usize | ((CBN_SELCHANGE as usize) << 16),
+                commands::FILTER as usize | ((CBN_SELCHANGE as usize) << 16),
                 filter as isize,
             );
         }

@@ -1,7 +1,10 @@
 //! Compose window controls and native events.
 mod rich;
-use super::{DISPATCH, command_ids::command_id, menus};
 use crate::platform::icons;
+use crate::ui::shared::{
+    commands::{DISPATCH, command_id},
+    menus,
+};
 use crate::{
     Result,
     account::{AccountId, AccountRecord},

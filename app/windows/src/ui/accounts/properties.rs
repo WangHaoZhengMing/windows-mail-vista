@@ -438,16 +438,25 @@ pub(super) unsafe fn open(manager: HWND, previous: Option<AccountRecord>) {
             window_owned: Cell::new(false),
             connection_test: RefCell::new(None),
         });
+        let embedded = (*host).embedded;
         let window = CreateWindowExW(
             WS_EX_DLGMODALFRAME | WS_EX_CONTROLPARENT,
             class.as_ptr(),
             wide(&title).as_ptr(),
-            WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU,
-            CW_USEDEFAULT,
-            CW_USEDEFAULT,
+            if embedded.is_null() {
+                WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU
+            } else {
+                WS_CHILD | WS_CLIPCHILDREN
+            },
+            if embedded.is_null() { CW_USEDEFAULT } else { 0 },
+            if embedded.is_null() { CW_USEDEFAULT } else { 0 },
             820,
             600,
-            manager,
+            if embedded.is_null() {
+                manager
+            } else {
+                embedded
+            },
             null_mut(),
             GetModuleHandleW(null()),
             (&*state as *const PropertyHost).cast(),
@@ -471,6 +480,10 @@ pub(super) unsafe fn open(manager: HWND, previous: Option<AccountRecord>) {
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
         EnableWindow(manager, 0);
+        present_setup(manager, window, 802, 560);
+        if !embedded.is_null() {
+            set_window_text(GetDlgItem(window, SAVE_ACCOUNT as i32), "Save & continue");
+        }
         ShowWindow(window, SW_SHOW);
         SetForegroundWindow(window);
         SetFocus(edit);
@@ -545,6 +558,10 @@ unsafe fn property_save(window: HWND) {
         }
         match result {
             Ok(snapshot) => {
+                let embedded = setup_parent(owner);
+                if !embedded.is_null() {
+                    PostMessageW(embedded, super::super::setup::ACCOUNT_SAVED, 0, 0);
+                }
                 let selected = selected.or_else(|| {
                     snapshot
                         .accounts

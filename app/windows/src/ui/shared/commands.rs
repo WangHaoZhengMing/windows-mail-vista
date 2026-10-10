@@ -2,15 +2,15 @@
 use crate::app::Command;
 use crate::app::SortColumn;
 
-pub(super) const LIST: u16 = 100;
-pub(super) const FOLDER: u16 = 110;
-pub(super) const SEARCH: u16 = 119;
-pub(super) const FILTER: u16 = 120;
+pub(in crate::ui) const LIST: u16 = 100;
+pub(in crate::ui) const FOLDER: u16 = 110;
+pub(in crate::ui) const SEARCH: u16 = 119;
+pub(in crate::ui) const FILTER: u16 = 120;
 // Reserved IDs for visible toolbar actions that are not implemented yet.
-pub(super) const PRINT: u16 = 114;
-pub(super) const CONTACTS: u16 = 115;
+pub(in crate::ui) const PRINT: u16 = 114;
+pub(in crate::ui) const CONTACTS: u16 = 115;
 
-pub(super) fn sort_column(index: i32) -> Option<SortColumn> {
+pub(in crate::ui) fn sort_column(index: i32) -> Option<SortColumn> {
     Some(match index {
         0 => SortColumn::Priority,
         1 => SortColumn::Attachment,
@@ -22,7 +22,7 @@ pub(super) fn sort_column(index: i32) -> Option<SortColumn> {
     })
 }
 
-pub(super) const fn command_id(command: Command) -> u16 {
+pub(in crate::ui) const fn command_id(command: Command) -> u16 {
     match command {
         Command::NewMessage => 101,
         Command::OpenMessage => 124,
@@ -56,7 +56,7 @@ pub(super) const fn command_id(command: Command) -> u16 {
     }
 }
 
-pub(super) fn decode(id: u16) -> Option<Command> {
+pub(in crate::ui) fn decode(id: u16) -> Option<Command> {
     Some(match id {
         101 => Command::NewMessage,
         124 => Command::OpenMessage,
@@ -90,3 +90,8 @@ pub(super) fn decode(id: u16) -> Option<Command> {
         _ => return None,
     })
 }
+
+/// Native notifications exchanged by main, compose, and reader windows.
+pub(crate) const DISPATCH: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 10;
+pub(crate) const READER_DISPATCH: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 12;
+pub(crate) const HTML_STATUS: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 11;

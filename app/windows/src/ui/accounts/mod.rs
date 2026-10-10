@@ -3,7 +3,7 @@ use crate::{
     Result,
     account::{Account, AccountId, AccountRecord, Authentication, Incoming, Security},
     platform::{
-        controls::{account_control as child, set_window_text, window_text as text},
+        controls::{set_window_text, window_text as text},
         dpi,
         strings::wide,
     },
@@ -15,10 +15,9 @@ use std::{
     sync::mpsc::{self, Receiver, Sender},
 };
 use windows_sys::Win32::{
-    Foundation::{ERROR_CLASS_ALREADY_EXISTS, GetLastError, HWND},
+    Foundation::HWND,
     Graphics::Gdi::{
-        COLOR_WINDOW, GetSysColorBrush, HBRUSH, HDC, InvalidateRect, SetBkMode, SetTextColor,
-        TRANSPARENT,
+        COLOR_WINDOW, GetSysColorBrush, HDC, InvalidateRect, SetBkMode, SetTextColor, TRANSPARENT,
     },
     System::LibraryLoader::GetModuleHandleW,
     UI::{
@@ -37,6 +36,42 @@ const SAVE_ACCOUNT: u16 = IDOK as u16;
 pub(crate) const ACCOUNT_SUBMITTED: u32 = WM_APP + 3;
 const SNAPSHOT_UPDATED: u32 = WM_APP + 30;
 const PROPERTY_CLOSED: u32 = WM_APP + 31;
+
+pub(super) unsafe fn setup_editor(manager: HWND) -> HWND {
+    unsafe {
+        let host = GetWindowLongPtrW(manager, GWLP_USERDATA) as *const manager::ManagerHost;
+        if host.is_null() {
+            null_mut()
+        } else {
+            (*host).property.get()
+        }
+    }
+}
+
+pub(super) unsafe fn setup_parent(manager: HWND) -> HWND {
+    unsafe {
+        let host = GetWindowLongPtrW(manager, GWLP_USERDATA) as *const manager::ManagerHost;
+        if host.is_null() {
+            null_mut()
+        } else {
+            (*host).embedded
+        }
+    }
+}
+
+unsafe fn present_setup(manager: HWND, editor: HWND, width: i32, height: i32) {
+    unsafe {
+        let parent = setup_parent(manager);
+        if !parent.is_null() {
+            SendMessageW(
+                parent,
+                super::setup::EMBEDDED,
+                editor as usize,
+                (width | (height << 16)) as isize,
+            );
+        }
+    }
+}
 
 #[derive(Clone)]
 pub(crate) struct AccountsSnapshot {
@@ -79,54 +114,13 @@ mod form;
 mod manager;
 mod oauth;
 mod properties;
-pub(super) mod settings;
 #[cfg(test)]
 mod tests;
 mod wizard;
 
+use crate::ui::shared::window::{WindowLayout, register_class};
 use form::{Field, FormInput, ValidationError};
 pub(crate) use manager::open;
-
-struct ControlBounds {
-    window: HWND,
-    rect: [i32; 4],
-}
-
-#[derive(Default)]
-struct WindowLayout {
-    metrics: dpi::Resources,
-    bounds: Vec<ControlBounds>,
-}
-
-impl WindowLayout {
-    unsafe fn control(
-        &mut self,
-        owner: HWND,
-        class: &str,
-        caption: &str,
-        style: u32,
-        id: u16,
-        rect: [i32; 4],
-    ) -> HWND {
-        unsafe {
-            let window = child(owner, class, caption, style, id);
-            self.bounds.push(ControlBounds { window, rect });
-            let [x, y, width, height] = rect;
-            dpi::move_control(self.metrics.dpi, window, x, y, width, height, 0);
-            window
-        }
-    }
-
-    unsafe fn update(&mut self, window: HWND, value: u32) {
-        unsafe {
-            self.metrics.update(window, value);
-            for bounds in &self.bounds {
-                let [x, y, width, height] = bounds.rect;
-                dpi::move_control(self.metrics.dpi, bounds.window, x, y, width, height, 1);
-            }
-        }
-    }
-}
 
 unsafe fn submit_change(
     owner: HWND,
@@ -142,26 +136,6 @@ unsafe fn submit_change(
         response
             .try_recv()
             .map_err(|_| "The main window did not confirm the account change.".to_owned())?
-    }
-}
-
-unsafe fn register_class(class: &[u16], procedure: WNDPROC) -> Result<()> {
-    unsafe {
-        let definition = WNDCLASSW {
-            lpfnWndProc: procedure,
-            hInstance: GetModuleHandleW(null()),
-            hCursor: LoadCursorW(null_mut(), IDC_ARROW),
-            hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
-            lpszClassName: class.as_ptr(),
-            ..std::mem::zeroed()
-        };
-        if RegisterClassW(&definition) == 0 && GetLastError() != ERROR_CLASS_ALREADY_EXISTS {
-            return Err(format!(
-                "Could not register account window: {}",
-                GetLastError()
-            ));
-        }
-        Ok(())
     }
 }
 

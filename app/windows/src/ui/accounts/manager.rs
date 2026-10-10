@@ -8,6 +8,7 @@ pub(super) struct ManagerHost {
     updates: Receiver<AccountUpdate>,
     pub(super) update_sender: Sender<AccountUpdate>,
     pub(super) property: Cell<HWND>,
+    pub(super) embedded: HWND,
     state: RefCell<AccountManager>,
     // Creation owns the Box until CreateWindowExW succeeds. Failed creation can
     // dispatch WM_NCDESTROY before returning, so that callback cannot free it.
@@ -295,6 +296,7 @@ pub(crate) unsafe fn open(
             updates,
             update_sender,
             property: Cell::new(null_mut()),
+            embedded: GetPropW(owner, wide("WinMailSetupHost").as_ptr()),
             state: RefCell::new(AccountManager::new(AccountsSnapshot {
                 accounts,
                 default_account,
@@ -320,6 +322,7 @@ pub(crate) unsafe fn open(
         }
         state.window_owned.set(true);
         let list = state.state.borrow().list;
+        let embedded = state.embedded;
         let _ = Box::into_raw(state);
         let value = dpi::window_dpi(window);
         SetWindowPos(
@@ -332,9 +335,11 @@ pub(crate) unsafe fn open(
             SWP_NOMOVE | SWP_NOZORDER | SWP_NOACTIVATE,
         );
         EnableWindow(owner, 0);
-        ShowWindow(window, SW_SHOW);
-        SetForegroundWindow(window);
-        SetFocus(list);
+        if embedded.is_null() {
+            ShowWindow(window, SW_SHOW);
+            SetForegroundWindow(window);
+            SetFocus(list);
+        }
         Ok(window)
     }
 }

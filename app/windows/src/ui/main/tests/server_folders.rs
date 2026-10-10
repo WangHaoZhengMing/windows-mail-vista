@@ -189,7 +189,7 @@ impl Fixture {
         let notification = NMTREEVIEWW {
             hdr: NMHDR {
                 hwndFrom: tree,
-                idFrom: command_ids::FOLDER as usize,
+                idFrom: commands::FOLDER as usize,
                 code: TVN_SELCHANGEDW,
             },
             itemNew: TVITEMW {
@@ -203,7 +203,7 @@ impl Fixture {
             SendMessageW(
                 self.hwnd,
                 WM_NOTIFY,
-                command_ids::FOLDER as usize,
+                commands::FOLDER as usize,
                 &notification as *const _ as isize,
             );
         }

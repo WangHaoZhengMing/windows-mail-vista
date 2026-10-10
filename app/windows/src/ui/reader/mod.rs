@@ -7,7 +7,7 @@ mod menus;
 #[cfg(test)]
 mod tests;
 
-use super::{READER_DISPATCH, command_ids::command_id};
+use crate::ui::shared::commands::{READER_DISPATCH, command_id};
 use crate::{
     Result,
     app::{Command, MessageId},
@@ -503,7 +503,7 @@ unsafe extern "system" fn window_proc(hwnd: HWND, msg: u32, wp: usize, lp: isize
                         DestroyWindow(hwnd);
                     }
                     _ if matches!(
-                        super::command_ids::decode(id),
+                        crate::ui::shared::commands::decode(id),
                         Some(
                             Command::Reply
                                 | Command::ReplyAll

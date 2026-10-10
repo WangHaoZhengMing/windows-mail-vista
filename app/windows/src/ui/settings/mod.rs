@@ -1,5 +1,14 @@
 //! Settings navigation and persisted desktop layout preferences.
-use super::*;
+use crate::platform::{dpi, strings::wide};
+use crate::ui::shared::window::{WindowLayout, register_class};
+use std::ptr::{null, null_mut};
+use windows_sys::Win32::{
+    Foundation::HWND,
+    System::LibraryLoader::GetModuleHandleW,
+    UI::{Controls::*, WindowsAndMessaging::*},
+};
+mod preferences;
+pub(crate) use preferences::Preferences;
 use windows_sys::Win32::Foundation::RECT;
 use windows_sys::Win32::Graphics::Gdi::*;
 use windows_sys::Win32::System::SystemServices::SS_NOPREFIX;
@@ -9,40 +18,6 @@ const NAV: u16 = 700;
 const APPLY: u16 = 701;
 const ACCOUNTS: u16 = 702;
 const ABOUT: u16 = 703;
-
-#[derive(serde::Serialize, serde::Deserialize)]
-#[serde(default)]
-pub(crate) struct Preferences {
-    pub folders: bool,
-    pub preview: bool,
-    pub dark_mode: bool,
-}
-impl Default for Preferences {
-    fn default() -> Self {
-        Self {
-            folders: true,
-            preview: true,
-            dark_mode: false,
-        }
-    }
-}
-impl Preferences {
-    fn path() -> std::path::PathBuf {
-        crate::store::default_root().join("desktop-settings.json")
-    }
-    pub(crate) fn load() -> Self {
-        std::fs::read(Self::path())
-            .ok()
-            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-            .unwrap_or_default()
-    }
-    fn save(&self) -> Result<()> {
-        let path = Self::path();
-        std::fs::create_dir_all(path.parent().unwrap()).map_err(|e| e.to_string())?;
-        let bytes = serde_json::to_vec_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, bytes).map_err(|e| e.to_string())
-    }
-}
 
 struct Settings {
     owner: HWND,
@@ -505,13 +480,13 @@ unsafe extern "system" fn procedure(window: HWND, message: u32, wp: usize, lp: i
                         PostMessageW(
                             (*pointer).owner,
                             WM_COMMAND,
-                            super::super::command_ids::command_id(
+                            crate::ui::shared::commands::command_id(
                                 crate::app::Command::ConfigureAccount,
                             ) as usize,
                             0,
                         );
                     }
-                    ABOUT => super::super::about::show(window),
+                    ABOUT => crate::ui::about::show(window),
                     id if id == IDCANCEL as u16 => {
                         DestroyWindow(window);
                     }

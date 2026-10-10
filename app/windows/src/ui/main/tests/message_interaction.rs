@@ -72,7 +72,7 @@ fn native_double_click_right_click_and_reader_actions_keep_message_identity() {
         let activation = NMITEMACTIVATE {
             hdr: NMHDR {
                 hwndFrom: list,
-                idFrom: command_ids::LIST as usize,
+                idFrom: commands::LIST as usize,
                 code: NM_DBLCLK,
             },
             iItem: 1,
@@ -81,7 +81,7 @@ fn native_double_click_right_click_and_reader_actions_keep_message_identity() {
         SendMessageW(
             hwnd,
             WM_NOTIFY,
-            command_ids::LIST as usize,
+            commands::LIST as usize,
             &activation as *const _ as isize,
         );
         let reader = host.with_window(|window| {
@@ -92,7 +92,7 @@ fn native_double_click_right_click_and_reader_actions_keep_message_identity() {
         SendMessageW(
             hwnd,
             WM_NOTIFY,
-            command_ids::LIST as usize,
+            commands::LIST as usize,
             &activation as *const _ as isize,
         );
         host.with_window(|window| {
@@ -129,7 +129,7 @@ fn native_double_click_right_click_and_reader_actions_keep_message_identity() {
         SendMessageW(
             hwnd,
             WM_NOTIFY,
-            command_ids::LIST as usize,
+            commands::LIST as usize,
             &subitem_activation as *const _ as isize,
         );
         host.with_window(|window| assert_eq!(window.readers.len(), 1));
@@ -155,7 +155,7 @@ fn native_double_click_right_click_and_reader_actions_keep_message_identity() {
             SendMessageW(
                 hwnd,
                 WM_NOTIFY,
-                command_ids::LIST as usize,
+                commands::LIST as usize,
                 &right_click as *const _ as isize
             ),
             1

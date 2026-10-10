@@ -20,6 +20,115 @@ fn example_account(email: &str) -> Account {
     }
 }
 
+#[test]
+fn first_run_account_pages_stay_in_the_welcome_window_and_save_to_the_owner() {
+    let _lock = crate::ui::WINDOW_TEST_LOCK.lock().unwrap();
+    let _context = dpi::ThreadContext::enter();
+    let directory = TestDirectory::new();
+    let (submissions, requests) = mpsc::channel();
+    let mut state = Box::new(OwnerState {
+        store: Store::open(&directory.0).unwrap(),
+        requests,
+        reject: false,
+        count: 0,
+    });
+    let class = wide(&format!("WinMailEmbeddedSetupTest.{}", std::process::id()));
+    unsafe {
+        register_class(&class, Some(owner_proc)).unwrap();
+        let owner = CreateWindowExW(
+            0,
+            class.as_ptr(),
+            wide("Setup fixture").as_ptr(),
+            WS_OVERLAPPEDWINDOW,
+            0,
+            0,
+            900,
+            700,
+            null_mut(),
+            null_mut(),
+            GetModuleHandleW(null()),
+            (&mut *state as *mut OwnerState).cast(),
+        );
+        super::super::setup::open(owner, false);
+        let welcome = FindWindowExW(
+            null_mut(),
+            null_mut(),
+            wide("WinMailRustFirstRun").as_ptr(),
+            null(),
+        );
+        assert!(!welcome.is_null());
+        SendMessageW(welcome, WM_COMMAND, 810, 0);
+        SendMessageW(welcome, WM_COMMAND, 810, 0);
+        SetPropW(owner, wide("WinMailSetupHost").as_ptr(), welcome);
+        let manager = open(owner, vec![], None, submissions.clone()).unwrap();
+        RemovePropW(owner, wide("WinMailSetupHost").as_ptr());
+        let mut windows = TestWindows {
+            owner,
+            manager,
+            class,
+        };
+        super::super::setup::begin_account(welcome, manager);
+        let wizard = property(manager);
+        assert_eq!(GetParent(wizard), welcome);
+        assert_eq!(GetWindowLongW(wizard, GWL_STYLE) as u32 & WS_CAPTION, 0);
+        assert_eq!(
+            IsWindowVisible(manager),
+            0,
+            "account manager must stay hidden"
+        );
+        assert_ne!(IsWindowVisible(welcome), 0);
+        SendMessageW(wizard, WM_COMMAND, IDCANCEL as usize, 0);
+        SendMessageW(welcome, WM_TIMER, 1, 0);
+        assert_eq!(IsWindow(manager), 0);
+        assert_ne!(IsWindowVisible(GetDlgItem(welcome, 812)), 0);
+        assert_eq!(state.count, 0);
+
+        SetPropW(owner, wide("WinMailSetupHost").as_ptr(), welcome);
+        windows.manager = open(owner, vec![], None, submissions).unwrap();
+        RemovePropW(owner, wide("WinMailSetupHost").as_ptr());
+        super::super::setup::begin_account(welcome, windows.manager);
+        let wizard = property(windows.manager);
+        SendMessageW(wizard, WM_COMMAND, 760, 0);
+        set_window_text(GetDlgItem(wizard, 763), "setup@icloud.com");
+        SendMessageW(wizard, WM_COMMAND, 760, 0);
+        let review = property(windows.manager);
+        assert_eq!(GetParent(review), welcome);
+        assert_eq!(GetWindowLongW(review, GWL_STYLE) as u32 & WS_CAPTION, 0);
+        assert_eq!(IsWindowVisible(windows.manager), 0);
+        assert_eq!(text(GetDlgItem(review, 304)), "imap.mail.me.com");
+        assert_ne!(
+            IsWindowEnabled(GetDlgItem(review, 325)),
+            0,
+            "connection test is available inline"
+        );
+        set_window_text(GetDlgItem(review, 303), "test-app-password");
+        set_window_text(GetDlgItem(review, 305), "bad");
+        SendMessageW(review, WM_COMMAND, SAVE_ACCOUNT as usize, 0);
+        assert_ne!(IsWindow(review), 0);
+        assert_eq!(state.count, 0);
+        set_window_text(GetDlgItem(review, 305), "993");
+        SendMessageW(review, WM_COMMAND, SAVE_ACCOUNT as usize, 0);
+        assert_eq!(IsWindow(review), 0);
+        assert_eq!(state.store.accounts().len(), 1);
+        let mut message = MSG::default();
+        while PeekMessageW(
+            &mut message,
+            welcome,
+            super::super::setup::ACCOUNT_SAVED,
+            super::super::setup::ACCOUNT_SAVED,
+            PM_REMOVE,
+        ) != 0
+        {
+            DispatchMessageW(&message);
+        }
+        SendMessageW(welcome, WM_TIMER, 1, 0);
+        assert_eq!(text(GetDlgItem(welcome, 810)), "Finish");
+        assert_eq!(IsWindow(windows.manager), 0);
+        SendMessageW(welcome, WM_COMMAND, IDCANCEL as usize, 0);
+        assert_ne!(IsWindowEnabled(owner), 0);
+    }
+}
+
 fn input(record: &AccountRecord) -> FormInput {
     FormInput {
         authentication: record.account.auth.clone(),
