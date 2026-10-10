@@ -7,14 +7,14 @@
     <Property Id="ARPCOMMENTS" Value="Native Rust email client with classic Windows Mail styling." />
     <Property Id="ARPURLINFOABOUT" Value="https://github.com/WangHaoZhengMing/windows-mail-vista" />
     <Property Id="ARPNOMODIFY" Value="1" />
-    <Icon Id="WinMailIcon" SourceFile="$(var.ProjectRoot)\assets\windows\icons\app.ico" />
-    <Property Id="ARPPRODUCTICON" Value="WinMailIcon" />
+    <Icon Id="WinMailIcon.exe" SourceFile="$(var.Payload64)\WinMail.exe" />
+    <Property Id="ARPPRODUCTICON" Value="WinMailIcon.exe" />
     <Directory Id="TARGETDIR" Name="SourceDir">
       <Directory Id="ProgramFiles64Folder">
         <Directory Id="INSTALLDIR" Name="Windows Mail Vista">
           <Component Id="Application" Guid="*" Win64="yes">
             <File Id="WinMailExecutable" Source="$(var.Payload64)\WinMail.exe" KeyPath="yes">
-              <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Windows Mail Vista" WorkingDirectory="INSTALLDIR" Advertise="yes" Icon="WinMailIcon" />
+              <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="Windows Mail Vista" WorkingDirectory="INSTALLDIR" Advertise="yes" Icon="WinMailIcon.exe" />
             </File>
           </Component>
           <Component Id="Mapi64" Guid="*" Win64="yes"><File Id="Mapi64File" Source="$(var.Payload64)\msoe.dll" KeyPath="yes" /></Component>
