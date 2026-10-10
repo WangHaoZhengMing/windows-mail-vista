@@ -31,7 +31,6 @@ jobs:
     env:
       CARGO_TERM_COLOR: always
       RUSTFLAGS: '-C target-feature=+crt-static'
-      WINMAIL_DATA_DIR: ${{ runner.temp }}\winmail-tests
       RELEASE_TAG: ${{ inputs.tag || (startsWith(github.ref, 'refs/tags/') && github.ref_name) || '' }}
     steps:
       - name: Check out source
@@ -45,6 +44,9 @@ jobs:
         run: |
           rustup toolchain install 1.88.0 --profile minimal --target x86_64-pc-windows-msvc
           rustup override set 1.88.0
+
+      - name: Isolate test data
+        run: '"WINMAIL_DATA_DIR=$env:RUNNER_TEMP\winmail-tests" >> $env:GITHUB_ENV'
 
       - name: Validate version and release tag
         id: version
